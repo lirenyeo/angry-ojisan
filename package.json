@@ -1,0 +1,18 @@
+{
+  "name": "angry-ojisan-web",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Web-based AngryOjisan party game with Claude-powered angry selfie mode",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.104.1",
+    "compression": "^1.7.5",
+    "express": "^4.21.2"
+  }
+}
