@@ -224,11 +224,12 @@ body {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   grid-template-rows: repeat(4, 1fr);
-  gap: 10px;
+  gap: 0;
   width: min(100%, 58dvh, 520px);
   aspect-ratio: 1;
   margin: auto;
-  touch-action: none;
+  padding: 4px;
+  touch-action: manipulation;
 }
 
 .cell {
@@ -237,95 +238,55 @@ body {
   background: transparent;
   padding: 0;
   cursor: pointer;
+  overflow: visible; /* heads spill into neighbours for the crammed crowd look */
   -webkit-tap-highlight-color: transparent;
 }
 
-.cell .box {
+/* the uncle himself — shown straight away, tilted and slightly oversized so
+   the crowd reads as squished together */
+.cell .face {
   position: absolute;
-  inset: 0;
-  border-radius: 14px;
-  background:
-    linear-gradient(160deg, rgba(255, 255, 255, 0.16) 0%, rgba(255, 255, 255, 0) 38%),
-    linear-gradient(180deg, var(--box-face), var(--box-edge));
-  box-shadow:
-    inset 0 -5px 0 rgba(0, 0, 0, 0.22),
-    inset 0 2px 0 rgba(255, 255, 255, 0.18),
-    0 6px 14px rgba(0, 0, 0, 0.4);
-  display: grid;
-  place-items: center;
-  transition: transform 0.18s ease, opacity 0.18s ease;
+  inset: -20%;
+  z-index: var(--z, 3);
+  transform: rotate(var(--rot, 0deg)) scale(1);
+  transition: transform 0.1s ease;
   will-change: transform;
+  pointer-events: none; /* spilled-over heads must not steal a neighbour's tap */
 }
-.cell .tape {
-  position: absolute;
-  left: 50%;
-  top: 0;
-  bottom: 0;
-  width: 18%;
-  transform: translateX(-50%);
-  background: rgba(120, 78, 32, 0.45);
-  border-left: 1px solid rgba(0, 0, 0, 0.12);
-  border-right: 1px solid rgba(0, 0, 0, 0.12);
-  border-radius: 14px 14px 14px 14px;
-  pointer-events: none;
-}
-.cell .qmark {
-  width: 46%;
-  height: 46%;
-  color: rgba(58, 32, 8, 0.65);
-  z-index: 1;
-}
-
-.cell:active .box { transform: scale(0.94); }
-
-.cell.rattle .box { animation: rattle 0.16s linear infinite; }
-@keyframes rattle {
-  0% { transform: translate(0, 0) rotate(0deg); }
-  25% { transform: translate(-2px, 1px) rotate(-2.5deg); }
-  50% { transform: translate(2px, -1px) rotate(2.5deg); }
-  75% { transform: translate(-1px, -1px) rotate(-1.5deg); }
-  100% { transform: translate(1px, 1px) rotate(1.5deg); }
-}
-
-.cell.open .box { transform: scale(1.06); opacity: 0; }
-
-.cell .popper {
-  position: absolute;
-  inset: 6%;
-  display: grid;
-  place-items: center;
-  opacity: 0;
-  transform: translateY(18%) scale(0.5);
-  will-change: transform, opacity;
-  pointer-events: none;
-}
-.cell .popper img {
+.cell .face img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
-  border-radius: 14px;
-  background: var(--card);
+  object-fit: contain;
+  border-radius: 16%; /* only visible on the opaque selfie photos */
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.55));
 }
-.cell.open .popper {
-  opacity: 1;
-  transform: translateY(0) scale(1);
-  transition: transform 0.22s cubic-bezier(0.2, 1.6, 0.4, 1), opacity 0.15s ease;
-}
-.cell.flying .popper {
-  animation: fly-away 0.62s cubic-bezier(0.3, 0, 0.8, 0.4) forwards;
+.cell:active .face { transform: rotate(var(--rot, 0deg)) scale(0.9); z-index: 30; }
+
+/* calm uncle pops up then launches out of the box */
+.cell.flying { z-index: 40; }
+.cell.flying .face {
+  animation: fly-away 0.64s cubic-bezier(0.3, 0, 0.7, 0.35) forwards;
 }
 @keyframes fly-away {
-  0% { opacity: 1; transform: translateY(0) scale(1) rotate(0deg); }
-  100% { opacity: 0; transform: translateY(-340%) scale(0.55) rotate(24deg); }
+  0% { transform: rotate(var(--rot, 0deg)) scale(1); opacity: 1; }
+  18% { transform: rotate(var(--rot, 0deg)) scale(1.22) translateY(-6%); opacity: 1; }
+  100% { transform: translateY(-380%) rotate(38deg) scale(0.42); opacity: 0; }
 }
-.cell.done .popper { opacity: 0; }
-.cell.done .box { opacity: 0; }
-.cell.done::after {
-  content: "";
-  position: absolute;
-  inset: 12%;
-  border-radius: 12px;
-  border: 2px dashed rgba(255, 255, 255, 0.12);
+.cell.gone .face { opacity: 0; }
+
+/* the wrong uncle wakes up — quick furious shake before the full reveal */
+.cell.angering { z-index: 60; }
+.cell.angering .face {
+  animation: anger-shake 0.38s linear;
+}
+@keyframes anger-shake {
+  0%, 100% { transform: rotate(var(--rot, 0deg)) scale(1.18); }
+  20% { transform: rotate(calc(var(--rot, 0deg) - 5deg)) scale(1.24); }
+  45% { transform: rotate(calc(var(--rot, 0deg) + 5deg)) scale(1.26); }
+  70% { transform: rotate(calc(var(--rot, 0deg) - 4deg)) scale(1.24); }
+}
+.cell.angering .face img {
+  filter: drop-shadow(0 0 14px rgba(255, 45, 18, 0.7));
 }
 
 .cell .quip {

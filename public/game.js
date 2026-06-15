@@ -1,4 +1,4 @@
-import { classicSet, CLASSIC_SAFE_QUIPS, CLASSIC_ANGRY_QUOTE } from "./characters.js";
+import { classicSet, makeOjisan, CLASSIC_SAFE_QUIPS, CLASSIC_ANGRY_QUOTE } from "./characters.js";
 
 /* ============================== State ============================== */
 
@@ -406,7 +406,13 @@ function newRound() {
   state.openedCount = 0;
   state.currentPlayer = 0;
   state.over = false;
-  state.busy = false;
+
+  // the secretly-furious uncle's angry face, generated from his own seed so
+  // the reveal looks like "that same uncle, now enraged"
+  state.classicAngryReveal =
+    state.mode === "classic"
+      ? makeOjisan(state.classic.seeds[state.angryIndex], true)
+      : null;
 
   board.innerHTML = "";
   cells = [];
@@ -415,16 +421,12 @@ function newRound() {
     const cell = document.createElement("button");
     cell.className = "cell";
     cell.dataset.i = i;
-    cell.setAttribute("aria-label", `Box ${i + 1}`);
+    // random tilt + stacking so the crowd reads as crammed-in, not a tidy grid
+    cell.style.setProperty("--rot", (Math.random() * 14 - 7).toFixed(1) + "deg");
+    cell.style.setProperty("--z", String(2 + Math.floor(Math.random() * 6)));
+    cell.setAttribute("aria-label", `Uncle ${i + 1}`);
     cell.innerHTML = `
-      <span class="box">
-        <svg class="qmark" viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M9.1 9a3 3 0 1 1 4.6 2.5c-1 .7-1.7 1.3-1.7 2.5v.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
-          <circle cx="12" cy="18.2" r="1.5" fill="currentColor"/>
-        </svg>
-        <span class="tape"></span>
-      </span>
-      <span class="popper"><img alt="" draggable="false"></span>
+      <span class="face"><img alt="" draggable="false" src="${characterFor(i)}"></span>
       <span class="quip"></span>`;
     frag.appendChild(cell);
     cells.push(cell);
@@ -434,17 +436,22 @@ function newRound() {
   $("#overlay-lose").classList.remove("show", "panel-in");
 }
 
+// Every uncle looks calm up front — you can't tell which is angry until tapped.
 function characterFor(index) {
-  if (state.mode === "selfie" && state.selfie) {
-    return index === state.angryIndex ? state.selfie.angryThumb : state.selfie.normalThumb;
-  }
-  if (index === state.angryIndex) return state.classic.angry;
-  return state.classic.calm[index % state.classic.calm.length];
+  if (state.mode === "selfie" && state.selfie) return state.selfie.normalThumb;
+  return state.classic.calm[index];
 }
 
+// Small angry face swapped into the tapped cell.
+function angryThumbImage() {
+  if (state.mode === "selfie" && state.selfie) return state.selfie.angryThumb;
+  return state.classicAngryReveal;
+}
+
+// Full-size angry face for the lose overlay.
 function angryRevealImage() {
   if (state.mode === "selfie" && state.selfie) return state.selfie.angryFull;
-  return state.classic.angry;
+  return state.classicAngryReveal;
 }
 
 function updateHud() {
@@ -464,47 +471,38 @@ function randomQuip() {
   return list[Math.floor(Math.random() * list.length)];
 }
 
+// No global lock: every tap fires independently, so you can rip through the
+// crowd as fast as you like. Each cell guards itself against re-taps; only the
+// angry reveal (state.over) stops the board.
 function openCell(cell, i) {
-  if (state.over || state.busy || cell.classList.contains("open")) return;
-  state.busy = true;
+  if (state.over || cell.classList.contains("tapped")) return;
+  cell.classList.add("tapped");
   const round = state.round;
-  const isAngry = i === state.angryIndex;
-  cell.classList.add("rattle");
-  tickSound();
-  buzz(15);
 
-  // brief suspense rattle before the reveal
-  const suspense = isAngry ? 620 : 240 + Math.random() * 160;
-  setTimeout(() => {
-    if (state.round !== round) return; // round was reset mid-suspense
-    cell.classList.remove("rattle");
-    cell.classList.add("open");
-    const img = cell.querySelector(".popper img");
-    img.src = characterFor(i);
-    state.openedCount++;
-
-    if (isAngry) {
-      loseSequence(cell);
-      return;
-    }
-
-    popSound();
-    buzz(20);
-    const quip = cell.querySelector(".quip");
-    quip.textContent = randomQuip();
-    cell.classList.add("flying");
-    state.currentPlayer = (state.currentPlayer + 1) % state.players;
-    updateHud();
+  if (i === state.angryIndex) {
+    // tapped the wrong uncle — he wakes up
+    state.over = true;
+    cell.querySelector(".face img").src = angryThumbImage();
+    cell.classList.add("angering");
+    tickSound();
+    buzz(30);
     setTimeout(() => {
-      if (state.round !== round) return;
-      cell.classList.add("done");
-      state.busy = false;
-      if (state.openedCount === GRID - 1) {
-        // only the angry one remains — auto-dramatic ending
-        $("#hud-remaining").textContent = "1";
-      }
-    }, 600);
-  }, suspense);
+      if (state.round === round) loseSequence(cell);
+    }, 380);
+    return;
+  }
+
+  // a calm uncle — pops out with a quip and flies off
+  popSound();
+  buzz(16);
+  cell.querySelector(".quip").textContent = randomQuip();
+  cell.classList.add("flying");
+  state.openedCount++;
+  state.currentPlayer = (state.currentPlayer + 1) % state.players;
+  updateHud();
+  setTimeout(() => {
+    if (state.round === round) cell.classList.add("gone");
+  }, 640);
 }
 
 function loseSequence(cell) {
@@ -516,18 +514,17 @@ function loseSequence(cell) {
   const overlay = $("#overlay-lose");
   $("#lose-face").src = angryRevealImage();
   $("#lose-quote").textContent = state.quotes.angryQuote || CLASSIC_ANGRY_QUOTE;
-  const safe = state.openedCount - 1;
-  const boxWord = safe === 1 ? "box" : "boxes";
+  const safe = state.openedCount;
+  const word = safe === 1 ? "uncle" : "uncles";
   $("#lose-stats").textContent =
     state.players > 1
-      ? `Player ${state.currentPlayer + 1} woke the angry one after ${safe} safe ${boxWord}!`
-      : `You survived ${safe} ${boxWord} before waking the angry one.`;
+      ? `Player ${state.currentPlayer + 1} woke the angry one after ${safe} safe ${word}!`
+      : `You cleared ${safe} ${word} before waking the angry one.`;
 
   setTimeout(() => {
     overlay.classList.add("show");
     setTimeout(() => overlay.classList.add("panel-in"), 1100);
     setTimeout(() => document.body.classList.remove("quake"), 900);
-    state.busy = false;
   }, 250);
 }
 
