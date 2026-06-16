@@ -8,8 +8,12 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-const HAS_KEY = Boolean(process.env.ANTHROPIC_API_KEY);
-const anthropic = HAS_KEY ? new Anthropic() : null;
+const HAS_ANTHROPIC = Boolean(process.env.ANTHROPIC_API_KEY);
+const anthropic = HAS_ANTHROPIC ? new Anthropic() : null;
+
+const GEMINI_KEY = process.env.GEMINI_API_KEY || "";
+const HAS_GEMINI = Boolean(GEMINI_KEY);
+const GEMINI_IMAGE_MODEL = process.env.GEMINI_IMAGE_MODEL || "gemini-3.1-flash-image";
 
 const ALLOWED_MEDIA = new Set(["image/jpeg", "image/png", "image/webp"]);
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // decoded size cap; client sends ~1024px JPEG (~150-400KB)
@@ -194,6 +198,137 @@ function sanitizeAnalysis(a) {
   };
 }
 
+/* ===================== Gemini image cut-outs ===================== */
+
+// The model returns opaque JPEG (no alpha), so we ask for a flat chroma-green
+// backdrop and key it out to transparent on the client.
+const CHROMA = "a perfectly uniform, flat, solid chroma-key green background (pure RGB 0,255,0), with absolutely no green anywhere on the person";
+
+const GEMINI_CALM_PROMPT =
+  "Show just this person's head, neck and the very top of their shoulders, centered, on " +
+  CHROMA + ". Keep their face, hair, glasses and natural calm expression exactly as in the " +
+  "photo — do not change their mood or identity. Square framing.";
+
+const GEMINI_ANGRY_PROMPT =
+  "Show just this person's head, neck and the very top of their shoulders, centered, on " +
+  CHROMA + ". Transform their expression into a comically FURIOUS, enraged cartoon: deeply " +
+  "furrowed angry V-shaped eyebrows, intense glaring eyes, gritted teeth or an open shouting " +
+  "mouth, and flushed bright-red cheeks. Keep it clearly the SAME recognizable person — same " +
+  "hair, glasses, skin tone and framing — exaggerated and funny, never gory or scary. Square framing.";
+
+// Edit the selfie with Gemini and return a data URL, or null on any failure.
+async function geminiCutout(mediaType, data, angry) {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_IMAGE_MODEL}:generateContent`;
+  try {
+    const resp = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-goog-api-key": GEMINI_KEY },
+      // Budget: two Gemini calls run in parallel (~45s worst), and only if BOTH
+      // fail do we add the Claude landmark fallback (30s) → ~75s server worst
+      // case, which must stay under the client's 120s abort.
+      signal: AbortSignal.timeout(45_000),
+      body: JSON.stringify({
+        contents: [
+          {
+            role: "user",
+            parts: [
+              { inline_data: { mime_type: mediaType, data } },
+              { text: angry ? GEMINI_ANGRY_PROMPT : GEMINI_CALM_PROMPT },
+            ],
+          },
+        ],
+        generationConfig: { responseModalities: ["IMAGE"] },
+      }),
+    });
+    if (!resp.ok) {
+      const detail = await resp.text().catch(() => "");
+      console.error("gemini http", resp.status, detail.slice(0, 300));
+      return null;
+    }
+    const json = await resp.json();
+    const parts = json?.candidates?.[0]?.content?.parts || [];
+    for (const p of parts) {
+      const inline = p.inlineData || p.inline_data;
+      if (inline?.data) {
+        const mt = inline.mimeType || inline.mime_type || "image/png";
+        return `data:${mt};base64,${inline.data}`;
+      }
+    }
+    console.error("gemini: no image in response", JSON.stringify(json).slice(0, 300));
+    return null;
+  } catch (err) {
+    console.error("gemini error:", err?.name || "", err?.message || err);
+    return null;
+  }
+}
+
+/* ===================== Claude quotes (Gemini path) ===================== */
+
+const QUOTES_SCHEMA = {
+  type: "object",
+  properties: {
+    angryQuote: {
+      type: "string",
+      description:
+        "a short, hilarious furious outburst (max 60 chars) this exact person might scream when enraged — personalize it to visible details (clothes, hair, glasses, setting). No profanity. ALL CAPS with an exclamation.",
+    },
+    safeQuips: {
+      type: "array",
+      items: { type: "string" },
+      description:
+        "8 short, relaxed or silly one-liners (max 40 chars each) that calm uncles say as they pop out of the crowd",
+    },
+  },
+  required: ["angryQuote", "safeQuips"],
+  additionalProperties: false,
+};
+
+function sanitizeQuotes(o) {
+  return {
+    angryQuote: String(o?.angryQuote || "").slice(0, 80),
+    safeQuips: Array.isArray(o?.safeQuips)
+      ? o.safeQuips.slice(0, 8).map((q) => String(q).slice(0, 60))
+      : [],
+  };
+}
+
+// Personalized quotes for the Gemini path. Returns null on any failure
+// (caller falls back to generic quotes).
+async function claudeQuotes(mediaType, data) {
+  if (!anthropic) return null;
+  try {
+    const response = await anthropic.messages.create(
+      {
+        model: "claude-opus-4-8",
+        max_tokens: 2000,
+        thinking: { type: "adaptive" },
+        output_config: {
+          effort: "low",
+          format: { type: "json_schema", schema: QUOTES_SCHEMA },
+        },
+        system:
+          'You write short, funny, family-friendly lines for the party game "Angry Ojisan". Look at the person in the photo and personalize the angry outburst to what you see. English only.',
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "image", source: { type: "base64", media_type: mediaType, data } },
+              { type: "text", text: "Write the angry outburst and 8 calm quips for this person." },
+            ],
+          },
+        ],
+      },
+      { timeout: 30_000, maxRetries: 0 },
+    );
+    if (response.stop_reason === "refusal" || response.stop_reason === "max_tokens") return null;
+    const textBlock = response.content.find((b) => b.type === "text");
+    return textBlock ? sanitizeQuotes(JSON.parse(textBlock.text)) : null;
+  } catch (err) {
+    console.error("quotes error:", err?.status || "", err?.message || err);
+    return null;
+  }
+}
+
 app.post("/api/angrify", async (req, res) => {
   // Rightmost x-forwarded-for entry is appended by Render's own proxy and is
   // not client-spoofable (unlike the leftmost entry).
@@ -217,57 +352,76 @@ app.post("/api/angrify", async (req, res) => {
   if (data.length * 0.75 > MAX_IMAGE_BYTES) {
     return res.status(413).json({ ok: false, reason: "too_large" });
   }
-  if (!HAS_KEY) {
+  if (!HAS_GEMINI && !HAS_ANTHROPIC) {
     return res.json({ ok: false, reason: "no_api_key" });
   }
 
-  try {
-    const response = await anthropic.messages.create(
-      {
-        model: "claude-opus-4-8",
-        max_tokens: 16000,
-        thinking: { type: "adaptive" },
-        output_config: {
-          effort: "low",
-          format: { type: "json_schema", schema: ANALYSIS_SCHEMA },
-        },
-        system: SYSTEM_PROMPT,
-        messages: [
-          {
-            role: "user",
-            content: [
-              {
-                type: "image",
-                source: { type: "base64", media_type: mediaType, data },
-              },
-              {
-                type: "text",
-                text: "Analyze this selfie for the angry makeover. Return precise normalized landmarks and the quotes.",
-              },
-            ],
-          },
-        ],
-      },
-      { timeout: 60_000, maxRetries: 0 },
-    );
-
-    if (response.stop_reason === "refusal") {
-      return res.json({ ok: false, reason: "refused" });
+  // Primary path: Gemini cuts the face out and makes an angry version, while
+  // Claude writes personalized quotes in parallel.
+  if (HAS_GEMINI) {
+    const [calm, angry, quotes] = await Promise.all([
+      geminiCutout(mediaType, data, false),
+      geminiCutout(mediaType, data, true),
+      claudeQuotes(mediaType, data),
+    ]);
+    if (calm && angry) {
+      return res.json({
+        ok: true,
+        kind: "cutout",
+        calm,
+        angry,
+        angryQuote: quotes?.angryQuote || "",
+        safeQuips: quotes?.safeQuips || [],
+      });
     }
-    if (response.stop_reason === "max_tokens") {
-      // structured output only guarantees valid JSON when generation completed
-      return res.json({ ok: false, reason: "truncated" });
-    }
-    const textBlock = response.content.find((b) => b.type === "text");
-    if (!textBlock) {
-      return res.json({ ok: false, reason: "empty" });
-    }
-    const analysis = sanitizeAnalysis(JSON.parse(textBlock.text));
-    return res.json({ ok: true, analysis });
-  } catch (err) {
-    console.error("angrify error:", err?.status || "", err?.message || err);
-    return res.status(502).json({ ok: false, reason: "ai_error" });
+    console.warn(`gemini cutout incomplete (calm:${!!calm} angry:${!!angry}) — falling back`);
+    // fall through to the Claude landmark compositor if available
   }
+
+  // Fallback path: Claude returns face landmarks; the client composites the
+  // rage on a canvas.
+  if (HAS_ANTHROPIC) {
+    try {
+      const response = await anthropic.messages.create(
+        {
+          model: "claude-opus-4-8",
+          max_tokens: 16000,
+          thinking: { type: "adaptive" },
+          output_config: {
+            effort: "low",
+            format: { type: "json_schema", schema: ANALYSIS_SCHEMA },
+          },
+          system: SYSTEM_PROMPT,
+          messages: [
+            {
+              role: "user",
+              content: [
+                { type: "image", source: { type: "base64", media_type: mediaType, data } },
+                {
+                  type: "text",
+                  text: "Analyze this selfie for the angry makeover. Return precise normalized landmarks and the quotes.",
+                },
+              ],
+            },
+          ],
+        },
+        { timeout: 30_000, maxRetries: 0 },
+      );
+
+      if (response.stop_reason === "refusal") return res.json({ ok: false, reason: "refused" });
+      if (response.stop_reason === "max_tokens") return res.json({ ok: false, reason: "truncated" });
+      const textBlock = response.content.find((b) => b.type === "text");
+      if (!textBlock) return res.json({ ok: false, reason: "empty" });
+      const analysis = sanitizeAnalysis(JSON.parse(textBlock.text));
+      return res.json({ ok: true, kind: "landmarks", analysis });
+    } catch (err) {
+      console.error("angrify error:", err?.status || "", err?.message || err);
+      return res.status(502).json({ ok: false, reason: "ai_error" });
+    }
+  }
+
+  // Gemini was the only configured service and it failed.
+  return res.status(502).json({ ok: false, reason: "image_failed" });
 });
 
 app.get("/healthz", (req, res) => res.json({ ok: true }));
@@ -289,5 +443,9 @@ app.get("/", (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`AngryOjisan listening on :${PORT} (claude: ${HAS_KEY ? "enabled" : "DISABLED — set ANTHROPIC_API_KEY"})`);
+  console.log(
+    `AngryOjisan listening on :${PORT} ` +
+      `(gemini cut-outs: ${HAS_GEMINI ? GEMINI_IMAGE_MODEL : "off"}, ` +
+      `claude: ${HAS_ANTHROPIC ? "on" : "off"})`,
+  );
 });

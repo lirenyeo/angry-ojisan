@@ -2,19 +2,16 @@ import { classicSet, makeOjisan, CLASSIC_SAFE_QUIPS, CLASSIC_ANGRY_QUOTE } from 
 
 /* ============================== State ============================== */
 
-const GRID = 16;
-
 const state = {
   mode: "classic", // 'classic' | 'selfie'
-  players: 1,
-  currentPlayer: 0,
+  grid: 16, // total cells: 9 | 16 | 25 | 36
   angryIndex: 0,
   openedCount: 0,
   over: false,
-  busy: false, // a cell animation in flight
+  busy: false, // guards selfie processing (not gameplay taps)
   round: 0, // bumped on every newRound so stale open-timeouts can bail
-  classic: null, // {calm[], angry}
-  selfie: null, // {normalThumb, angryThumb, angryFull, analysis}
+  classic: null, // {calm[], seeds[]}
+  selfie: null, // {normalThumb, angryThumb, angryFull}
   quotes: { angryQuote: CLASSIC_ANGRY_QUOTE, safeQuips: CLASSIC_SAFE_QUIPS },
 };
 
@@ -143,13 +140,17 @@ const FALLBACK_ANALYSIS = {
   foreheadCenter: { x: 0.5, y: 0.25 },
   cheekLeft: { x: 0.34, y: 0.52 },
   cheekRight: { x: 0.66, y: 0.52 },
-  angryQuote: "WHO TOUCHED MY BOX?!",
+  angryQuote: "WHO TOUCHED MY STUFF?!",
   safeQuips: CLASSIC_SAFE_QUIPS,
 };
 
-async function requestAnalysis(dataUrl) {
+// Returns the server payload verbatim: { ok, kind: "cutout"|"landmarks", ... }
+// or { ok:false, reason }. Never throws — network failure resolves to ok:false.
+async function requestAngrify(dataUrl) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 85_000);
+  // Must exceed the server's worst case (~75s: parallel Gemini ≤45s + Claude
+  // landmark fallback ≤30s) so we don't abandon a request that's about to succeed.
+  const timer = setTimeout(() => controller.abort(), 120_000);
   try {
     const res = await fetch("/api/angrify", {
       method: "POST",
@@ -157,14 +158,87 @@ async function requestAnalysis(dataUrl) {
       body: JSON.stringify({ image: dataUrl }),
       signal: controller.signal,
     });
-    const json = await res.json();
-    if (json.ok && json.analysis) return { analysis: json.analysis, live: true };
+    return await res.json();
   } catch {
-    /* fall through to heuristic */
+    return { ok: false, reason: "network" };
   } finally {
     clearTimeout(timer);
   }
-  return { analysis: FALLBACK_ANALYSIS, live: false };
+}
+
+// Gemini returns the subject on a flat chroma-green backdrop (no alpha). Knock
+// the green out to transparent so it becomes a clean cut-out sticker.
+//
+// We flood-fill inward from the borders through connected green only — so
+// green clothing/eyes in the SUBJECT keep their pixels (no holes), and if
+// Gemini didn't actually produce a green background nothing is removed and the
+// face simply stays on whatever backdrop it has (never a green rectangle).
+async function chromaKeyCutout(dataUrl, max = 640) {
+  try {
+    const img = await loadImage(dataUrl);
+    const scale = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+    const w = Math.max(1, Math.round(img.naturalWidth * scale));
+    const h = Math.max(1, Math.round(img.naturalHeight * scale));
+    const c = document.createElement("canvas");
+    c.width = w;
+    c.height = h;
+    const ctx = c.getContext("2d");
+    ctx.drawImage(img, 0, 0, w, h);
+    const id = ctx.getImageData(0, 0, w, h);
+    const d = id.data;
+
+    const isGreen = (i) => {
+      const r = d[i], g = d[i + 1], b = d[i + 2];
+      return g > 80 && g > r * 1.2 && g > b * 1.2; // tolerant: catches JPEG-noisy green
+    };
+    // Flood from every border pixel; alpha 0 doubles as the visited marker.
+    const stack = [];
+    const visit = (x, y) => {
+      if (x < 0 || y < 0 || x >= w || y >= h) return;
+      const i = (y * w + x) * 4;
+      if (d[i + 3] === 0 || !isGreen(i)) return;
+      d[i + 3] = 0;
+      stack.push(x, y);
+    };
+    for (let x = 0; x < w; x++) {
+      visit(x, 0);
+      visit(x, h - 1);
+    }
+    for (let y = 0; y < h; y++) {
+      visit(0, y);
+      visit(w - 1, y);
+    }
+    while (stack.length) {
+      const y = stack.pop();
+      const x = stack.pop();
+      visit(x + 1, y);
+      visit(x - 1, y);
+      visit(x, y + 1);
+      visit(x, y - 1);
+    }
+
+    // Despill + soften only the cut edge (kept pixels touching transparency),
+    // so legit interior greens aren't discoloured.
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const i = (y * w + x) * 4;
+        if (d[i + 3] === 0) continue;
+        const edge =
+          (x > 0 && d[i - 4 + 3] === 0) ||
+          (x < w - 1 && d[i + 4 + 3] === 0) ||
+          (y > 0 && d[i - w * 4 + 3] === 0) ||
+          (y < h - 1 && d[i + w * 4 + 3] === 0);
+        if (!edge) continue;
+        const r = d[i], g = d[i + 1], b = d[i + 2];
+        if (g > Math.max(r, b)) d[i + 1] = Math.max(r, b); // kill green fringe
+        d[i + 3] = Math.round(d[i + 3] * 0.85); // soften the hard cut
+      }
+    }
+    ctx.putImageData(id, 0, 0);
+    return c.toDataURL("image/png");
+  } catch {
+    return dataUrl;
+  }
 }
 
 /* --------------------- Canvas rage compositor --------------------- */
@@ -323,6 +397,7 @@ function cropFace(img, face, padFactor = 0.55, size = 360) {
 
 const LOADING_LINES = [
   "Locating your inner ojisan...",
+  "Cutting you out of the photo...",
   "Measuring eyebrow fury...",
   "Heating up your cheeks...",
   "Inflating the anger vein...",
@@ -347,6 +422,30 @@ function setProcessing(on) {
   }
 }
 
+// Build state.selfie from a Claude landmark analysis using the canvas
+// compositor (the fallback path when Gemini isn't available).
+async function buildFromLandmarks(img, raw) {
+  const analysis = raw.faceDetected
+    ? raw
+    : {
+        ...FALLBACK_ANALYSIS,
+        angryQuote: raw.angryQuote || FALLBACK_ANALYSIS.angryQuote,
+        safeQuips: raw.safeQuips?.length ? raw.safeQuips : FALLBACK_ANALYSIS.safeQuips,
+        faceDetected: false,
+      };
+  const angryFull = angrifyImage(img, analysis);
+  const angryImg = await loadImage(angryFull);
+  state.selfie = {
+    normalThumb: cropFace(img, analysis.face),
+    angryThumb: cropFace(angryImg, analysis.face),
+    angryFull,
+  };
+  state.quotes = {
+    angryQuote: analysis.angryQuote || FALLBACK_ANALYSIS.angryQuote,
+    safeQuips: analysis.safeQuips?.length ? analysis.safeQuips : CLASSIC_SAFE_QUIPS,
+  };
+}
+
 async function handleSelfie(file) {
   if (!file || state.busy) return;
   state.busy = true;
@@ -355,36 +454,36 @@ async function handleSelfie(file) {
   try {
     const dataUrl = await optimizeFile(file);
     const img = await loadImage(dataUrl);
-    const { analysis: raw, live } = await requestAnalysis(dataUrl);
-    // If the live API saw no face it zeroes the geometry — swap in the
-    // heuristic geometry but keep Claude's quotes.
-    const analysis = raw.faceDetected
-      ? raw
-      : {
-          ...FALLBACK_ANALYSIS,
-          angryQuote: raw.angryQuote || FALLBACK_ANALYSIS.angryQuote,
-          safeQuips: raw.safeQuips?.length ? raw.safeQuips : FALLBACK_ANALYSIS.safeQuips,
-          faceDetected: false,
-        };
-    const angryFull = angrifyImage(img, analysis);
-    const angryImg = await loadImage(angryFull);
-    state.selfie = {
-      normalThumb: cropFace(img, analysis.face),
-      angryThumb: cropFace(angryImg, analysis.face),
-      angryFull,
-      analysis,
-    };
-    state.quotes = {
-      angryQuote: analysis.angryQuote || FALLBACK_ANALYSIS.angryQuote,
-      safeQuips: analysis.safeQuips?.length ? analysis.safeQuips : CLASSIC_SAFE_QUIPS,
-    };
+    const res = await requestAngrify(dataUrl);
+    let note;
+
+    if (res?.ok && res.kind === "cutout" && res.calm && res.angry) {
+      // Gemini gave us the face on a green screen — key it out to a sticker.
+      const [calm, angry] = await Promise.all([
+        chromaKeyCutout(res.calm),
+        chromaKeyCutout(res.angry),
+      ]);
+      state.selfie = { normalThumb: calm, angryThumb: angry, angryFull: angry };
+      state.quotes = {
+        angryQuote: res.angryQuote || FALLBACK_ANALYSIS.angryQuote,
+        safeQuips: res.safeQuips?.length ? res.safeQuips : CLASSIC_SAFE_QUIPS,
+      };
+      note = "Gemini cut you out and made you furious.";
+    } else if (res?.ok && res.kind === "landmarks" && res.analysis) {
+      // Claude found landmarks; composite the rage on canvas.
+      await buildFromLandmarks(img, res.analysis);
+      note = res.analysis.faceDetected
+        ? "Claude found your face. It is not happy."
+        : "Claude couldn't spot a face — applied generic rage instead.";
+    } else {
+      // No image service reachable — heuristic rage so the game still plays.
+      await buildFromLandmarks(img, { ...FALLBACK_ANALYSIS });
+      note = "AI is offline — applied generic rage instead.";
+    }
+
     $("#preview-normal").src = state.selfie.normalThumb;
     $("#preview-angry").src = state.selfie.angryThumb;
-    $("#selfie-note").textContent = live
-      ? raw.faceDetected
-        ? "Claude found your face. It is not happy."
-        : "Claude couldn't spot a face — applied generic rage instead."
-      : "AI is offline — applied generic rage instead.";
+    $("#selfie-note").textContent = note;
     $("#selfie-result").classList.remove("hidden");
   } catch (err) {
     console.error(err);
@@ -402,9 +501,8 @@ let cells = [];
 
 function newRound() {
   state.round++;
-  state.angryIndex = Math.floor(Math.random() * GRID);
+  state.angryIndex = Math.floor(Math.random() * state.grid);
   state.openedCount = 0;
-  state.currentPlayer = 0;
   state.over = false;
 
   // the secretly-furious uncle's angry face, generated from his own seed so
@@ -414,10 +512,14 @@ function newRound() {
       ? makeOjisan(state.classic.seeds[state.angryIndex], true)
       : null;
 
+  const dim = Math.round(Math.sqrt(state.grid)); // 3 | 4 | 5 | 6
+  board.style.gridTemplateColumns = `repeat(${dim}, 1fr)`;
+  board.style.gridTemplateRows = `repeat(${dim}, 1fr)`;
+
   board.innerHTML = "";
   cells = [];
   const frag = document.createDocumentFragment();
-  for (let i = 0; i < GRID; i++) {
+  for (let i = 0; i < state.grid; i++) {
     const cell = document.createElement("button");
     cell.className = "cell";
     cell.dataset.i = i;
@@ -455,15 +557,7 @@ function angryRevealImage() {
 }
 
 function updateHud() {
-  const remaining = GRID - state.openedCount;
-  $("#hud-remaining").textContent = remaining;
-  const turnEl = $("#hud-turn");
-  if (state.players > 1) {
-    turnEl.textContent = `Player ${state.currentPlayer + 1}`;
-    turnEl.classList.remove("hidden");
-  } else {
-    turnEl.classList.add("hidden");
-  }
+  $("#hud-remaining").textContent = state.grid - state.openedCount;
 }
 
 function randomQuip() {
@@ -498,7 +592,6 @@ function openCell(cell, i) {
   cell.querySelector(".quip").textContent = randomQuip();
   cell.classList.add("flying");
   state.openedCount++;
-  state.currentPlayer = (state.currentPlayer + 1) % state.players;
   updateHud();
   setTimeout(() => {
     if (state.round === round) cell.classList.add("gone");
@@ -516,10 +609,7 @@ function loseSequence(cell) {
   $("#lose-quote").textContent = state.quotes.angryQuote || CLASSIC_ANGRY_QUOTE;
   const safe = state.openedCount;
   const word = safe === 1 ? "uncle" : "uncles";
-  $("#lose-stats").textContent =
-    state.players > 1
-      ? `Player ${state.currentPlayer + 1} woke the angry one after ${safe} safe ${word}!`
-      : `You cleared ${safe} ${word} before waking the angry one.`;
+  $("#lose-stats").textContent = `You cleared ${safe} ${word} before waking the angry one.`;
 
   setTimeout(() => {
     overlay.classList.add("show");
@@ -551,12 +641,12 @@ document.addEventListener("DOMContentLoaded", () => {
     show("selfie");
   });
 
-  // player count segmented control
-  document.querySelectorAll("#player-picker button").forEach((btn) => {
+  // grid size segmented control
+  document.querySelectorAll("#grid-picker button").forEach((btn) => {
     btn.addEventListener("click", () => {
-      document.querySelectorAll("#player-picker button").forEach((b) => b.classList.remove("sel"));
+      document.querySelectorAll("#grid-picker button").forEach((b) => b.classList.remove("sel"));
       btn.classList.add("sel");
-      state.players = Number(btn.dataset.n);
+      state.grid = Number(btn.dataset.n);
     });
   });
 

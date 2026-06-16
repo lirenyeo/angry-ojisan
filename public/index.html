@@ -28,7 +28,7 @@
         </svg>
         <h1>Angry<br>Ojisan</h1>
       </div>
-      <p class="tagline">16 uncles, crammed in tight.<br>One of them is <em>furious</em>.</p>
+      <p class="tagline">A crowd of uncles, crammed in tight.<br>One of them is <em>furious</em>.</p>
 
       <div class="menu">
         <button id="btn-classic" class="btn btn-primary">
@@ -41,19 +41,17 @@
         </button>
       </div>
 
-      <div class="players">
-        <span class="players-label">Players</span>
-        <div id="player-picker" role="group" aria-label="number of players">
-          <button class="sel" data-n="1">1</button>
-          <button data-n="2">2</button>
-          <button data-n="3">3</button>
-          <button data-n="4">4</button>
-          <button data-n="5">5</button>
-          <button data-n="6">6</button>
+      <div class="gridsize">
+        <span class="gridsize-label">Grid size</span>
+        <div id="grid-picker" role="group" aria-label="grid size">
+          <button data-n="9">3×3</button>
+          <button class="sel" data-n="16">4×4</button>
+          <button data-n="25">5×5</button>
+          <button data-n="36">6×6</button>
         </div>
       </div>
 
-      <p class="footnote">Take turns tapping uncles — whoever wakes the angry one loses.</p>
+      <p class="footnote">Tap the uncles one by one — wake the angry one and you lose.</p>
     </div>
   </section>
 
@@ -61,7 +59,7 @@
   <section id="screen-selfie" class="screen scrollable">
     <div class="selfie-inner">
       <h2>Angry Selfie Mode</h2>
-      <p class="selfie-sub">Take a selfie — Claude studies your face and turns you into the angry ojisan hiding in the crowd.</p>
+      <p class="selfie-sub">Take a selfie — AI cuts you out and turns you into the angry ojisan hiding in the crowd.</p>
 
       <div id="selfie-actions">
         <label class="btn btn-accent file-btn">
@@ -105,7 +103,7 @@
       </div>
 
       <button id="btn-selfie-back" class="btn btn-ghost back">Back</button>
-      <p class="privacy">Your selfie is analyzed in-memory and never stored on our server.</p>
+      <p class="privacy">Your selfie is processed in-memory to generate your angry face, and never stored on our server.</p>
     </div>
   </section>
 
@@ -116,7 +114,6 @@
         <svg viewBox="0 0 24 24"><path d="m4 11 8-7 8 7v8a1 1 0 0 1-1 1h-4v-6h-6v6H5a1 1 0 0 1-1-1z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/></svg>
       </button>
       <div class="hud-center">
-        <span id="hud-turn" class="hud-turn hidden">Player 1</span>
         <span class="hud-remaining"><b id="hud-remaining">16</b> uncles left</span>
       </div>
       <button id="btn-restart" class="icon-btn" aria-label="shuffle and restart">

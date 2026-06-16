@@ -135,23 +135,24 @@ body {
 .tagline em { color: var(--rage); font-style: normal; font-weight: 800; }
 .menu { width: 100%; display: flex; flex-direction: column; gap: 14px; }
 
-.players { display: flex; flex-direction: column; gap: 8px; align-items: center; }
-.players-label {
+.gridsize { display: flex; flex-direction: column; gap: 8px; align-items: center; }
+.gridsize-label {
   font-size: 0.8rem;
   text-transform: uppercase;
   letter-spacing: 0.12em;
   color: var(--ink-dim);
 }
-#player-picker {
+#grid-picker {
   display: flex;
   gap: 6px;
   background: rgba(255, 255, 255, 0.06);
   padding: 5px;
   border-radius: 14px;
 }
-#player-picker button {
-  width: 42px;
-  height: 38px;
+#grid-picker button {
+  min-width: 56px;
+  height: 40px;
+  padding: 0 12px;
   border: none;
   border-radius: 10px;
   background: transparent;
@@ -160,8 +161,10 @@ body {
   font-weight: 700;
   font-size: 1rem;
   cursor: pointer;
+  transition: transform 0.1s ease;
 }
-#player-picker button.sel { background: var(--amber); color: #2a1a05; }
+#grid-picker button:active { transform: scale(0.92); }
+#grid-picker button.sel { background: var(--amber); color: #2a1a05; }
 .footnote { color: var(--ink-dim); font-size: 0.85rem; opacity: 0.8; max-width: 300px; }
 
 /* ---------- selfie screen ---------- */
@@ -216,7 +219,6 @@ body {
   padding-bottom: 10px;
 }
 .hud-center { display: flex; flex-direction: column; align-items: center; line-height: 1.2; }
-.hud-turn { color: var(--amber); font-weight: 800; font-size: 1rem; }
 .hud-remaining { color: var(--ink-dim); font-size: 0.85rem; }
 .hud-remaining b { color: var(--ink); }
 

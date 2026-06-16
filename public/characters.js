@@ -152,13 +152,14 @@ export function makeOjisan(seed, angry = false) {
   return "data:image/svg+xml," + encodeURIComponent(svg.replace(/\s+/g, " "));
 }
 
-/** 16 calm uncles for Classic mode, all looking innocent. The angry reveal
- *  for whichever one is secretly furious is generated per-round from its seed,
- *  so the crowd is indistinguishable until you tap the wrong uncle. */
+/** Up to 36 calm uncles for Classic mode (enough for the largest grid), all
+ *  looking innocent. The angry reveal for whichever one is secretly furious is
+ *  generated per-round from its seed, so the crowd is indistinguishable until
+ *  you tap the wrong uncle. */
 export function classicSet() {
   const calm = [];
   const seeds = [];
-  for (let i = 0; i < 16; i++) {
+  for (let i = 0; i < 36; i++) {
     const seed = i + 1;
     seeds.push(seed);
     calm.push(makeOjisan(seed, false));
