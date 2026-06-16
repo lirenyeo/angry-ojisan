@@ -146,9 +146,9 @@ const FALLBACK_ANALYSIS = {
 // or { ok:false, reason }. Never throws — network failure resolves to ok:false.
 async function requestAngrify(dataUrl) {
   const controller = new AbortController();
-  // Must exceed the server's worst case (~45s of parallel Gemini calls) so we
-  // don't abandon a request that's about to succeed.
-  const timer = setTimeout(() => controller.abort(), 90_000);
+  // Generous: the server may retry Gemini a few times (NO_IMAGE returns fast,
+  // so retries are cheap) — don't abandon a request that's about to succeed.
+  const timer = setTimeout(() => controller.abort(), 120_000);
   try {
     const res = await fetch("/api/angrify", {
       method: "POST",

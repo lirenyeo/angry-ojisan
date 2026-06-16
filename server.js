@@ -61,61 +61,72 @@ setInterval(() => {
 const CHROMA =
   "a perfectly uniform, flat, solid chroma-key green background (pure RGB 0,255,0), with absolutely no green anywhere on the person";
 
+// Both prompts frame the job as a creative cartoon-sticker EDIT, not photo
+// reproduction — the model occasionally returns finishReason:NO_IMAGE when a
+// prompt reads like "reproduce this real person", so we keep it clearly stylized.
 const GEMINI_CALM_PROMPT =
-  "Show just this person's head, neck and the very top of their shoulders, centered, on " +
+  "Create a fun cartoon-avatar sticker of this person: keep just their head, neck and the very " +
+  "top of their shoulders, centered, on " +
   CHROMA +
-  ". Keep their face, hair, glasses and natural calm expression exactly as in the " +
-  "photo — do not change their mood or identity. Square framing.";
+  ". Keep their hair, glasses, skin tone and a calm, neutral expression, lightly stylized like " +
+  "a friendly cartoon. Square framing.";
 
 const GEMINI_ANGRY_PROMPT =
-  "Show just this person's head, neck and the very top of their shoulders, centered, on " +
+  "Create a fun cartoon-avatar sticker of this person: keep just their head, neck and the very " +
+  "top of their shoulders, centered, on " +
   CHROMA +
-  ". Transform their expression into a comically FURIOUS, enraged cartoon: deeply " +
-  "furrowed angry V-shaped eyebrows, intense glaring eyes, gritted teeth or an open shouting " +
-  "mouth, and flushed bright-red cheeks. Keep it clearly the SAME recognizable person — same " +
-  "hair, glasses, skin tone and framing — exaggerated and funny, never gory or scary. Square framing.";
+  ". Make their expression comically FURIOUS and enraged: deeply furrowed angry V-shaped " +
+  "eyebrows, intense glaring eyes, gritted teeth or an open shouting mouth, and flushed " +
+  "bright-red cheeks. Keep it clearly the SAME recognizable person — same hair, glasses, skin " +
+  "tone and framing — exaggerated and funny, never gory or scary. Square framing.";
 
-// Edit the selfie with Gemini and return a data URL, or null on any failure.
+const GEMINI_ATTEMPTS = 3; // NO_IMAGE / transient errors return fast, so retrying is cheap
+
+// Edit the selfie with Gemini and return a data URL, or null after all retries.
 async function geminiCutout(mediaType, data, angry) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_IMAGE_MODEL}:generateContent`;
-  try {
-    const resp = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-goog-api-key": GEMINI_KEY },
-      signal: AbortSignal.timeout(45_000), // two run in parallel; keep under the client's 90s abort
-      body: JSON.stringify({
-        contents: [
-          {
-            role: "user",
-            parts: [
-              { inline_data: { mime_type: mediaType, data } },
-              { text: angry ? GEMINI_ANGRY_PROMPT : GEMINI_CALM_PROMPT },
-            ],
-          },
+  const body = JSON.stringify({
+    contents: [
+      {
+        role: "user",
+        parts: [
+          { inline_data: { mime_type: mediaType, data } },
+          { text: angry ? GEMINI_ANGRY_PROMPT : GEMINI_CALM_PROMPT },
         ],
-        generationConfig: { responseModalities: ["IMAGE"] },
-      }),
-    });
-    if (!resp.ok) {
-      const detail = await resp.text().catch(() => "");
-      console.error("gemini http", resp.status, detail.slice(0, 300));
-      return null;
-    }
-    const json = await resp.json();
-    const parts = json?.candidates?.[0]?.content?.parts || [];
-    for (const p of parts) {
-      const inline = p.inlineData || p.inline_data;
-      if (inline?.data) {
-        const mt = inline.mimeType || inline.mime_type || "image/png";
-        return `data:${mt};base64,${inline.data}`;
+      },
+    ],
+    generationConfig: { responseModalities: ["IMAGE"] },
+  });
+  for (let attempt = 1; attempt <= GEMINI_ATTEMPTS; attempt++) {
+    try {
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-goog-api-key": GEMINI_KEY },
+        signal: AbortSignal.timeout(40_000), // two run in parallel; stay under the client abort
+        body,
+      });
+      if (!resp.ok) {
+        const detail = await resp.text().catch(() => "");
+        console.error(`gemini http ${resp.status} (${angry ? "angry" : "calm"} ${attempt}/${GEMINI_ATTEMPTS})`, detail.slice(0, 200));
+        continue;
       }
+      const json = await resp.json();
+      const parts = json?.candidates?.[0]?.content?.parts || [];
+      for (const p of parts) {
+        const inline = p.inlineData || p.inline_data;
+        if (inline?.data) {
+          const mt = inline.mimeType || inline.mime_type || "image/png";
+          return `data:${mt};base64,${inline.data}`;
+        }
+      }
+      console.warn(
+        `gemini no image (${angry ? "angry" : "calm"} ${attempt}/${GEMINI_ATTEMPTS}) finishReason=${json?.candidates?.[0]?.finishReason}`,
+      );
+    } catch (err) {
+      console.error(`gemini error (${angry ? "angry" : "calm"} ${attempt}/${GEMINI_ATTEMPTS})`, err?.name || "", err?.message || "");
     }
-    console.error("gemini: no image in response", JSON.stringify(json).slice(0, 300));
-    return null;
-  } catch (err) {
-    console.error("gemini error:", err?.name || "", err?.message || err);
-    return null;
   }
+  return null;
 }
 
 app.post("/api/angrify", async (req, res) => {
