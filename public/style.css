@@ -13,7 +13,7 @@
   --box-face: #c98e4f;
   --box-edge: #9c6a35;
   --radius: 18px;
-  --font: "Baloo 2", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font: "Baloo 2", "Noto Sans SC", "Noto Sans Thai", system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -105,6 +105,31 @@ body {
   gap: 22px;
   text-align: center;
 }
+
+.lang-switch {
+  display: flex;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  padding: 5px;
+  border-radius: 12px;
+}
+.lang-switch button {
+  min-width: 46px;
+  height: 32px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink-dim);
+  font-family: var(--font);
+  font-weight: 700;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: transform 0.1s ease;
+}
+.lang-switch button:active { transform: scale(0.92); }
+.lang-switch button.sel { background: var(--amber); color: #2a1a05; }
+
 .logo { position: relative; }
 .logo h1 {
   font-size: clamp(3rem, 16vw, 4.4rem);

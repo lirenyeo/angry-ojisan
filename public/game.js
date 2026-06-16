@@ -1,4 +1,5 @@
-import { classicSet, makeOjisan, CLASSIC_SAFE_QUIPS, CLASSIC_ANGRY_QUOTE } from "./characters.js";
+import { classicSet, makeOjisan } from "./characters.js";
+import { STRINGS, getLang, setLang, t } from "./i18n.js";
 
 /* ============================== State ============================== */
 
@@ -12,7 +13,6 @@ const state = {
   round: 0, // bumped on every newRound so stale open-timeouts can bail
   classic: null, // {calm[], seeds[]}
   selfie: null, // {normalThumb, angryThumb, angryFull}
-  quotes: { angryQuote: CLASSIC_ANGRY_QUOTE, safeQuips: CLASSIC_SAFE_QUIPS },
 };
 
 const $ = (sel) => document.querySelector(sel);
@@ -140,17 +140,15 @@ const FALLBACK_ANALYSIS = {
   foreheadCenter: { x: 0.5, y: 0.25 },
   cheekLeft: { x: 0.34, y: 0.52 },
   cheekRight: { x: 0.66, y: 0.52 },
-  angryQuote: "WHO TOUCHED MY STUFF?!",
-  safeQuips: CLASSIC_SAFE_QUIPS,
 };
 
-// Returns the server payload verbatim: { ok, kind: "cutout"|"landmarks", ... }
+// Returns the server payload verbatim: { ok, kind: "cutout", calm, angry }
 // or { ok:false, reason }. Never throws — network failure resolves to ok:false.
 async function requestAngrify(dataUrl) {
   const controller = new AbortController();
-  // Must exceed the server's worst case (~75s: parallel Gemini ≤45s + Claude
-  // landmark fallback ≤30s) so we don't abandon a request that's about to succeed.
-  const timer = setTimeout(() => controller.abort(), 120_000);
+  // Must exceed the server's worst case (~45s of parallel Gemini calls) so we
+  // don't abandon a request that's about to succeed.
+  const timer = setTimeout(() => controller.abort(), 90_000);
   try {
     const res = await fetch("/api/angrify", {
       method: "POST",
@@ -286,7 +284,8 @@ function angryBrow(ctx, brow, eyeW, lineW, side) {
   ctx.stroke();
 }
 
-/** Composite the rage onto the photo using Claude's landmarks. Returns dataURL. */
+/** Composite generic rage onto the photo at the given landmark positions
+ *  (the heuristic fallback). Returns a dataURL. */
 function angrifyImage(img, analysis) {
   const W = img.naturalWidth;
   const H = img.naturalHeight;
@@ -395,16 +394,6 @@ function cropFace(img, face, padFactor = 0.55, size = 360) {
 
 /* ====================== Selfie processing flow ====================== */
 
-const LOADING_LINES = [
-  "Locating your inner ojisan...",
-  "Cutting you out of the photo...",
-  "Measuring eyebrow fury...",
-  "Heating up your cheeks...",
-  "Inflating the anger vein...",
-  "Brewing the rage...",
-  "Almost mad enough...",
-];
-
 let loadingTimer = null;
 function setProcessing(on) {
   const panel = $("#selfie-processing");
@@ -412,37 +401,26 @@ function setProcessing(on) {
   $("#selfie-actions").classList.toggle("hidden", on);
   clearInterval(loadingTimer);
   if (on) {
+    const lines = t("processing");
     let i = 0;
     const line = $("#processing-line");
-    line.textContent = LOADING_LINES[0];
+    line.textContent = lines[0];
     loadingTimer = setInterval(() => {
-      i = (i + 1) % LOADING_LINES.length;
-      line.textContent = LOADING_LINES[i];
+      i = (i + 1) % lines.length;
+      line.textContent = lines[i];
     }, 2200);
   }
 }
 
-// Build state.selfie from a Claude landmark analysis using the canvas
-// compositor (the fallback path when Gemini isn't available).
-async function buildFromLandmarks(img, raw) {
-  const analysis = raw.faceDetected
-    ? raw
-    : {
-        ...FALLBACK_ANALYSIS,
-        angryQuote: raw.angryQuote || FALLBACK_ANALYSIS.angryQuote,
-        safeQuips: raw.safeQuips?.length ? raw.safeQuips : FALLBACK_ANALYSIS.safeQuips,
-        faceDetected: false,
-      };
-  const angryFull = angrifyImage(img, analysis);
+// Heuristic rage compositor — used when Gemini is unavailable so the game still
+// plays. Draws generic anger onto the photo at fallback landmark positions.
+async function buildHeuristic(img) {
+  const angryFull = angrifyImage(img, FALLBACK_ANALYSIS);
   const angryImg = await loadImage(angryFull);
   state.selfie = {
-    normalThumb: cropFace(img, analysis.face),
-    angryThumb: cropFace(angryImg, analysis.face),
+    normalThumb: cropFace(img, FALLBACK_ANALYSIS.face),
+    angryThumb: cropFace(angryImg, FALLBACK_ANALYSIS.face),
     angryFull,
-  };
-  state.quotes = {
-    angryQuote: analysis.angryQuote || FALLBACK_ANALYSIS.angryQuote,
-    safeQuips: analysis.safeQuips?.length ? analysis.safeQuips : CLASSIC_SAFE_QUIPS,
   };
 }
 
@@ -464,21 +442,11 @@ async function handleSelfie(file) {
         chromaKeyCutout(res.angry),
       ]);
       state.selfie = { normalThumb: calm, angryThumb: angry, angryFull: angry };
-      state.quotes = {
-        angryQuote: res.angryQuote || FALLBACK_ANALYSIS.angryQuote,
-        safeQuips: res.safeQuips?.length ? res.safeQuips : CLASSIC_SAFE_QUIPS,
-      };
-      note = "Gemini cut you out and made you furious.";
-    } else if (res?.ok && res.kind === "landmarks" && res.analysis) {
-      // Claude found landmarks; composite the rage on canvas.
-      await buildFromLandmarks(img, res.analysis);
-      note = res.analysis.faceDetected
-        ? "Claude found your face. It is not happy."
-        : "Claude couldn't spot a face — applied generic rage instead.";
+      note = t("noteCutout");
     } else {
-      // No image service reachable — heuristic rage so the game still plays.
-      await buildFromLandmarks(img, { ...FALLBACK_ANALYSIS });
-      note = "AI is offline — applied generic rage instead.";
+      // Gemini unavailable/failed — heuristic rage so the game still plays.
+      await buildHeuristic(img);
+      note = t("noteOffline");
     }
 
     $("#preview-normal").src = state.selfie.normalThumb;
@@ -487,7 +455,7 @@ async function handleSelfie(file) {
     $("#selfie-result").classList.remove("hidden");
   } catch (err) {
     console.error(err);
-    $("#selfie-note").textContent = "Something went wrong with that photo — try another one.";
+    $("#selfie-note").textContent = t("noteError");
   } finally {
     setProcessing(false);
     state.busy = false;
@@ -557,11 +525,11 @@ function angryRevealImage() {
 }
 
 function updateHud() {
-  $("#hud-remaining").textContent = state.grid - state.openedCount;
+  $("#hud-remaining").textContent = t("hud")(state.grid - state.openedCount);
 }
 
 function randomQuip() {
-  const list = state.quotes.safeQuips;
+  const list = t("safeQuips");
   return list[Math.floor(Math.random() * list.length)];
 }
 
@@ -606,10 +574,8 @@ function loseSequence(cell) {
 
   const overlay = $("#overlay-lose");
   $("#lose-face").src = angryRevealImage();
-  $("#lose-quote").textContent = state.quotes.angryQuote || CLASSIC_ANGRY_QUOTE;
-  const safe = state.openedCount;
-  const word = safe === 1 ? "uncle" : "uncles";
-  $("#lose-stats").textContent = `You cleared ${safe} ${word} before waking the angry one.`;
+  $("#lose-quote").textContent = t("angryQuote");
+  $("#lose-stats").textContent = t("loseStats")(state.openedCount);
 
   setTimeout(() => {
     overlay.classList.add("show");
@@ -623,14 +589,61 @@ function loseSequence(cell) {
 function startGame(mode) {
   state.mode = mode;
   if (mode === "classic" && !state.classic) state.classic = classicSet();
-  if (mode === "classic") {
-    state.quotes = { angryQuote: CLASSIC_ANGRY_QUOTE, safeQuips: CLASSIC_SAFE_QUIPS };
-  }
   newRound();
   show("game");
 }
 
+/* ============================== i18n ============================== */
+
+const LANG_KEY = "ao_lang";
+
+// Apply translations to every static element tagged with data-i18n /
+// data-i18n-html, and refresh dynamic strings on the current screen.
+function applyLang() {
+  const lang = getLang();
+  document.documentElement.lang = lang;
+  document.querySelectorAll("[data-i18n]").forEach((el) => {
+    el.textContent = t(el.dataset.i18n);
+  });
+  document.querySelectorAll("[data-i18n-html]").forEach((el) => {
+    el.innerHTML = t(el.dataset.i18nHtml);
+  });
+  // dynamic, screen-dependent text
+  if ($("#screen-game").classList.contains("active")) updateHud();
+}
+
+function initLang() {
+  let saved = "en";
+  try {
+    const v = localStorage.getItem(LANG_KEY);
+    if (v && STRINGS[v]) saved = v;
+  } catch {
+    /* localStorage unavailable — default English */
+  }
+  setLang(saved);
+  document.querySelectorAll("#lang-switch button").forEach((b) => {
+    b.classList.toggle("sel", b.dataset.lang === saved);
+  });
+  applyLang();
+}
+
 document.addEventListener("DOMContentLoaded", () => {
+  // language switcher
+  initLang();
+  document.querySelectorAll("#lang-switch button").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll("#lang-switch button").forEach((b) => b.classList.remove("sel"));
+      btn.classList.add("sel");
+      setLang(btn.dataset.lang);
+      try {
+        localStorage.setItem(LANG_KEY, btn.dataset.lang);
+      } catch {
+        /* ignore */
+      }
+      applyLang();
+    });
+  });
+
   // home
   $("#btn-classic").addEventListener("click", () => {
     audio();

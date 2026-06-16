@@ -12,7 +12,5 @@ services:
         sync: false
       - key: GEMINI_IMAGE_MODEL
         value: gemini-3.1-flash-image
-      - key: ANTHROPIC_API_KEY
-        sync: false
       - key: NODE_VERSION
         value: "22"

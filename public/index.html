@@ -4,13 +4,13 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
   <title>Angry Ojisan — don't wake the angry one</title>
-  <meta name="description" content="A party game: 16 boxes, 15 chill uncles, 1 furious one. Or upload a selfie and let Claude make YOU the angry one.">
+  <meta name="description" content="A party game: a crowd of uncles, one is furious. Tap them one by one and don't wake the angry one. Or upload a selfie and become the angry one.">
   <meta name="theme-color" content="#16131c">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;700;800&family=Noto+Sans+SC:wght@500;700;800&family=Noto+Sans+Thai:wght@500;700;800&display=swap" rel="stylesheet">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%23c81e1e'/%3E%3Cg stroke='%23fff' stroke-width='9' stroke-linecap='round' fill='none'%3E%3Cpath d='M22 38 Q34 18 50 33'/%3E%3Cpath d='M78 38 Q66 18 50 33'/%3E%3Cpath d='M22 62 Q34 82 50 67'/%3E%3Cpath d='M78 62 Q66 82 50 67'/%3E%3C/g%3E%3C/svg%3E">
   <link rel="stylesheet" href="style.css">
 </head>
@@ -19,6 +19,12 @@
   <!-- ============ HOME ============ -->
   <section id="screen-home" class="screen active">
     <div class="home-inner">
+      <div id="lang-switch" class="lang-switch" role="group" aria-label="language">
+        <button data-lang="en">EN</button>
+        <button data-lang="zh">中文</button>
+        <button data-lang="th">ไทย</button>
+      </div>
+
       <div class="logo">
         <svg class="logo-vein" viewBox="0 0 100 100" aria-hidden="true">
           <g stroke="currentColor" stroke-width="9" stroke-linecap="round" fill="none">
@@ -28,21 +34,21 @@
         </svg>
         <h1>Angry<br>Ojisan</h1>
       </div>
-      <p class="tagline">A crowd of uncles, crammed in tight.<br>One of them is <em>furious</em>.</p>
+      <p class="tagline" data-i18n-html="tagline">A crowd of uncles, crammed in tight.<br>One of them is <em>furious</em>.</p>
 
       <div class="menu">
         <button id="btn-classic" class="btn btn-primary">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9.5 12 4l9 5.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M3 9.5 12 14l9-4.5M12 14v6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
-          Classic Uncles
+          <span data-i18n="btnClassic">Classic Uncles</span>
         </button>
         <button id="btn-selfie" class="btn btn-accent">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h3l1.5-2h7L17 7h3a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><circle cx="12" cy="13.5" r="3.6" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
-          Angry Selfie Mode
+          <span data-i18n="btnSelfie">Angry Selfie Mode</span>
         </button>
       </div>
 
       <div class="gridsize">
-        <span class="gridsize-label">Grid size</span>
+        <span class="gridsize-label" data-i18n="gridSize">Grid size</span>
         <div id="grid-picker" role="group" aria-label="grid size">
           <button data-n="9">3×3</button>
           <button class="sel" data-n="16">4×4</button>
@@ -51,25 +57,25 @@
         </div>
       </div>
 
-      <p class="footnote">Tap the uncles one by one — wake the angry one and you lose.</p>
+      <p class="footnote" data-i18n="footnote">Tap the uncles one by one — wake the angry one and you lose.</p>
     </div>
   </section>
 
   <!-- ============ SELFIE SETUP ============ -->
   <section id="screen-selfie" class="screen scrollable">
     <div class="selfie-inner">
-      <h2>Angry Selfie Mode</h2>
-      <p class="selfie-sub">Take a selfie — AI cuts you out and turns you into the angry ojisan hiding in the crowd.</p>
+      <h2 data-i18n="selfieTitle">Angry Selfie Mode</h2>
+      <p class="selfie-sub" data-i18n="selfieSub">Take a selfie — AI cuts you out and turns you into the angry ojisan hiding in the crowd.</p>
 
       <div id="selfie-actions">
         <label class="btn btn-accent file-btn">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h3l1.5-2h7L17 7h3a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><circle cx="12" cy="13.5" r="3.6" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
-          Take a selfie
+          <span data-i18n="btnCamera">Take a selfie</span>
           <input id="input-camera" type="file" accept="image/*" capture="user" hidden>
         </label>
         <label class="btn btn-ghost file-btn">
           <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="m3 16 5-5 4 4 3-3 6 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><circle cx="9" cy="9.5" r="1.4" fill="currentColor"/></svg>
-          Choose from library
+          <span data-i18n="btnLibrary">Choose from library</span>
           <input id="input-library" type="file" accept="image/*" hidden>
         </label>
       </div>
@@ -90,20 +96,20 @@
         <div class="preview-row">
           <figure>
             <img id="preview-normal" alt="your selfie">
-            <figcaption>You</figcaption>
+            <figcaption data-i18n="previewYou">You</figcaption>
           </figure>
           <svg class="arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h14m-5-6 6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
           <figure>
             <img id="preview-angry" alt="your angry self">
-            <figcaption class="angry-cap">Angry You</figcaption>
+            <figcaption class="angry-cap" data-i18n="previewAngry">Angry You</figcaption>
           </figure>
         </div>
         <p id="selfie-note" class="selfie-note"></p>
-        <button id="btn-selfie-start" class="btn btn-primary">Hide me in the crowd</button>
+        <button id="btn-selfie-start" class="btn btn-primary" data-i18n="btnSelfieStart">Hide me in the crowd</button>
       </div>
 
-      <button id="btn-selfie-back" class="btn btn-ghost back">Back</button>
-      <p class="privacy">Your selfie is processed in-memory to generate your angry face, and never stored on our server.</p>
+      <button id="btn-selfie-back" class="btn btn-ghost back" data-i18n="btnBack">Back</button>
+      <p class="privacy" data-i18n="privacy">Your selfie is processed in-memory to generate your angry face, and never stored on our server.</p>
     </div>
   </section>
 
@@ -114,7 +120,7 @@
         <svg viewBox="0 0 24 24"><path d="m4 11 8-7 8 7v8a1 1 0 0 1-1 1h-4v-6h-6v6H5a1 1 0 0 1-1-1z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/></svg>
       </button>
       <div class="hud-center">
-        <span class="hud-remaining"><b id="hud-remaining">16</b> uncles left</span>
+        <span id="hud-remaining" class="hud-remaining">16 uncles left</span>
       </div>
       <button id="btn-restart" class="icon-btn" aria-label="shuffle and restart">
         <svg viewBox="0 0 24 24"><path d="M20 8a8 8 0 1 0 1.7 8.7M21 4v5h-5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -134,10 +140,10 @@
     </div>
     <p id="lose-quote" class="rage-quote"></p>
     <div class="lose-panel">
-      <h2>BUSTED!</h2>
+      <h2 data-i18n="loseBusted">BUSTED!</h2>
       <p id="lose-stats"></p>
-      <button id="btn-again" class="btn btn-primary">Play again</button>
-      <button id="btn-lose-home" class="btn btn-ghost">Menu</button>
+      <button id="btn-again" class="btn btn-primary" data-i18n="playAgain">Play again</button>
+      <button id="btn-lose-home" class="btn btn-ghost" data-i18n="menu">Menu</button>
     </div>
   </div>
 

@@ -166,16 +166,3 @@ export function classicSet() {
   }
   return { calm, seeds };
 }
-
-export const CLASSIC_SAFE_QUIPS = [
-  "Just napping in here...",
-  "Is it lunch yet?",
-  "Ah, fresh air!",
-  "I was doing my taxes.",
-  "Five more minutes...",
-  "Have you eaten?",
-  "Back in my day...",
-  "Where are my glasses?",
-];
-
-export const CLASSIC_ANGRY_QUOTE = "WHO WOKE ME UP?!";

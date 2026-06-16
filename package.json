@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Web-based AngryOjisan party game with Claude-powered angry selfie mode",
+  "description": "Web-based AngryOjisan party game with Gemini-powered angry selfie mode (EN/中文/ไทย)",
   "engines": {
     "node": ">=18"
   },
@@ -11,7 +11,6 @@
     "start": "node server.js"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.104.1",
     "compression": "^1.7.5",
     "express": "^4.21.2"
   }
