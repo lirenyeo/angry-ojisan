@@ -14,6 +14,7 @@ const state = {
   classic: null, // {calm[], seeds[]}
   selfie: null, // {normalThumb, angryThumb, angryFull}
   drinks: null, // per-cell drink instruction (or null) for this round — the drinking game
+  drinkEnabled: true, // home-screen toggle; off = no drinking instructions at all
 };
 
 const $ = (sel) => document.querySelector(sel);
@@ -475,7 +476,7 @@ const DRINK_TYPES = [
   { id: "all", i18n: "drinkAll", weight: 3 }, // very rare
 ];
 const DRINK_WEIGHT_TOTAL = DRINK_TYPES.reduce((s, d) => s + d.weight, 0);
-const DRINK_RATE = 0.5; // share of calm uncles that carry a drinking instruction
+const DRINK_RATE = 0.1; // ~10% of calm uncles carry a drinking instruction
 
 const DRINK_ICONS = {
   one: `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3.6" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M5.5 20a6.5 6.5 0 0 1 13 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>`,
@@ -493,9 +494,10 @@ function pickDrinkType() {
 }
 
 // Decide up front which uncles hold a drink instruction (the angry one never
-// does — he ends the round before any card matters).
+// does — he ends the round before any card matters). Empty if the toggle is off.
 function assignDrinks() {
   const drinks = new Array(state.grid).fill(null);
+  if (!state.drinkEnabled) return drinks;
   for (let i = 0; i < state.grid; i++) {
     if (i === state.angryIndex) continue;
     if (Math.random() < DRINK_RATE) drinks[i] = pickDrinkType();
@@ -504,18 +506,26 @@ function assignDrinks() {
 }
 
 function clinkSound(rare) {
-  // light "ding ding" on a drink card; a brighter triple for "everyone drinks"
+  // light "ding ding" when a drink card appears; brighter triple for "everyone"
   tone({ type: "sine", from: 900, to: 1320, dur: 0.1, vol: 0.18 });
   tone({ type: "sine", from: 1320, to: 1760, dur: 0.12, vol: 0.16, delay: 0.08 });
   if (rare) tone({ type: "sine", from: 1760, to: 2300, dur: 0.16, vol: 0.18, delay: 0.18 });
 }
 
-function showDrinkCard(cell, type) {
-  const card = cell.querySelector(".drink-card");
-  card.innerHTML = `${DRINK_ICONS[type.id]}<span>${t(type.i18n)}</span>`;
-  card.classList.toggle("rare", type.id === "all");
-  cell.classList.add("drinking");
-  clinkSound(type.id === "all");
+// A drink instruction is a full-screen modal so the whole table sees it; it
+// stays up (blocking the board) until someone taps "Cheers!" to dismiss.
+function openDrinkModal(type) {
+  const overlay = $("#overlay-drink");
+  const rare = type.id === "all";
+  $("#drink-modal-icon").innerHTML = DRINK_ICONS[type.id];
+  $("#drink-modal-text").textContent = t(type.i18n);
+  overlay.querySelector(".drink-modal").classList.toggle("rare", rare);
+  overlay.classList.add("show");
+  clinkSound(rare);
+}
+
+function closeDrinkModal() {
+  $("#overlay-drink").classList.remove("show");
 }
 
 /* ============================== Game ============================== */
@@ -552,16 +562,14 @@ function newRound() {
     cell.style.setProperty("--rot", (Math.random() * 14 - 7).toFixed(1) + "deg");
     cell.style.setProperty("--z", String(2 + Math.floor(Math.random() * 6)));
     cell.setAttribute("aria-label", `Uncle ${i + 1}`);
-    cell.innerHTML = `
-      <span class="face"><img alt="" draggable="false" src="${characterFor(i)}"></span>
-      <span class="quip"></span>
-      <span class="drink-card"></span>`;
+    cell.innerHTML = `<span class="face"><img alt="" draggable="false" src="${characterFor(i)}"></span>`;
     frag.appendChild(cell);
     cells.push(cell);
   }
   board.appendChild(frag);
   updateHud();
   $("#overlay-lose").classList.remove("show", "panel-in");
+  closeDrinkModal();
 }
 
 // Every uncle looks calm up front — you can't tell which is angry until tapped.
@@ -586,11 +594,6 @@ function updateHud() {
   $("#hud-remaining").textContent = t("hud")(state.grid - state.openedCount);
 }
 
-function randomQuip() {
-  const list = t("safeQuips");
-  return list[Math.floor(Math.random() * list.length)];
-}
-
 // No global lock: every tap fires independently, so you can rip through the
 // crowd as fast as you like. Each cell guards itself against re-taps; only the
 // angry reveal (state.over) stops the board.
@@ -612,19 +615,15 @@ function openCell(cell, i) {
     return;
   }
 
-  // a calm uncle — pops out and flies off. Some carry a drinking instruction
-  // (the drinking game); the rest just mutter a flavour quip.
+  // a calm uncle — pops out and flies off. ~10% (when enabled) carry a drinking
+  // instruction, which opens a modal everyone can see and must dismiss.
   popSound();
   buzz(16);
-  const drink = state.drinks?.[i];
-  if (drink) {
-    showDrinkCard(cell, drink);
-  } else {
-    cell.querySelector(".quip").textContent = randomQuip();
-  }
   cell.classList.add("flying");
   state.openedCount++;
   updateHud();
+  const drink = state.drinks?.[i];
+  if (drink) openDrinkModal(drink);
   setTimeout(() => {
     if (state.round === round) cell.classList.add("gone");
   }, 640);
@@ -691,9 +690,40 @@ function initLang() {
   applyLang();
 }
 
+/* ===================== Settings (drinking game) ===================== */
+
+const DRINK_KEY = "ao_drink";
+
+function setDrinkEnabled(on, persist) {
+  state.drinkEnabled = on;
+  const toggle = $("#drink-toggle");
+  toggle.classList.toggle("on", on);
+  toggle.setAttribute("aria-checked", String(on));
+  if (persist) {
+    try {
+      localStorage.setItem(DRINK_KEY, on ? "on" : "off");
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+function initDrinkToggle() {
+  let on = true; // default on
+  try {
+    if (localStorage.getItem(DRINK_KEY) === "off") on = false;
+  } catch {
+    /* localStorage unavailable — default on */
+  }
+  setDrinkEnabled(on, false);
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   // language switcher
   initLang();
+  // drinking-game toggle
+  initDrinkToggle();
+  $("#drink-toggle").addEventListener("click", () => setDrinkEnabled(!state.drinkEnabled, true));
   document.querySelectorAll("#lang-switch button").forEach((btn) => {
     btn.addEventListener("click", () => {
       document.querySelectorAll("#lang-switch button").forEach((b) => b.classList.remove("sel"));
@@ -744,6 +774,12 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#btn-lose-home").addEventListener("click", () => {
     $("#overlay-lose").classList.remove("show", "panel-in");
     show("home");
+  });
+
+  // drink instruction modal — manual dismiss only (button, or tap the backdrop)
+  $("#btn-drink-close").addEventListener("click", closeDrinkModal);
+  $("#overlay-drink").addEventListener("pointerdown", (e) => {
+    if (e.target.id === "overlay-drink") closeDrinkModal();
   });
 
   // prevent iOS double-tap zoom / scroll bounce inside the app

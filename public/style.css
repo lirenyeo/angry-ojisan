@@ -192,6 +192,42 @@ body {
 #grid-picker button.sel { background: var(--amber); color: #2a1a05; }
 .footnote { color: var(--ink-dim); font-size: 0.85rem; opacity: 0.8; max-width: 300px; }
 
+/* ---------- settings (drinking-game toggle) ---------- */
+.settings { width: 100%; max-width: 280px; }
+.setting-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.setting-label {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--ink-dim);
+}
+.toggle {
+  position: relative;
+  width: 50px;
+  height: 28px;
+  flex: 0 0 auto;
+  border: none;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+  cursor: pointer;
+  transition: background 0.2s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.toggle.on { background: var(--amber); }
+.toggle .toggle-knob {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  transition: transform 0.2s cubic-bezier(0.3, 1.4, 0.4, 1);
+}
+.toggle.on .toggle-knob { transform: translateX(22px); }
+.toggle:active .toggle-knob { width: 26px; }
+
 /* ---------- selfie screen ---------- */
 .selfie-inner {
   margin: auto;
@@ -314,76 +350,6 @@ body {
 }
 .cell.angering .face img {
   filter: drop-shadow(0 0 14px rgba(255, 45, 18, 0.7));
-}
-
-.cell .quip {
-  position: absolute;
-  left: 50%;
-  top: -8px;
-  transform: translate(-50%, 10px);
-  background: var(--ink);
-  color: #241a10;
-  font-size: 0.72rem;
-  font-weight: 700;
-  line-height: 1.15;
-  padding: 5px 9px;
-  border-radius: 10px;
-  white-space: nowrap;
-  opacity: 0;
-  pointer-events: none;
-  z-index: 5;
-  max-width: 200%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.cell.flying .quip { animation: quip-float 0.9s ease-out forwards; }
-@keyframes quip-float {
-  0% { opacity: 0; transform: translate(-50%, 10px); }
-  18% { opacity: 1; transform: translate(-50%, -6px); }
-  80% { opacity: 1; transform: translate(-50%, -16px); }
-  100% { opacity: 0; transform: translate(-50%, -24px); }
-}
-
-/* ---------- drinking-game instruction card ---------- */
-/* Raise the whole cell so the card sits above the crammed neighbours, and
-   linger long enough for the table to read and act on it. */
-.cell.drinking { z-index: 70; }
-.cell .drink-card {
-  position: absolute;
-  left: 50%;
-  bottom: 84%;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  background: linear-gradient(180deg, #ffd36b, var(--amber));
-  color: #2a1a05;
-  font-size: 0.82rem;
-  font-weight: 800;
-  line-height: 1.12;
-  text-align: left;
-  padding: 7px 11px;
-  border-radius: 12px;
-  white-space: nowrap;
-  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.45), inset 0 0 0 2px rgba(0, 0, 0, 0.18);
-  opacity: 0;
-  pointer-events: none;
-  z-index: 71;
-}
-.cell .drink-card svg { width: 18px; height: 18px; flex: none; }
-.cell.drinking .drink-card { animation: drink-pop 2.6s cubic-bezier(0.2, 0.85, 0.3, 1) forwards; }
-@keyframes drink-pop {
-  0% { opacity: 0; transform: translate(-50%, 10px) scale(0.55); }
-  9% { opacity: 1; transform: translate(-50%, -6px) scale(1.12); }
-  18% { transform: translate(-50%, -8px) scale(1); }
-  82% { opacity: 1; transform: translate(-50%, -8px) scale(1); }
-  100% { opacity: 0; transform: translate(-50%, -18px) scale(0.98); }
-}
-/* "Everyone drinks" — rare, so make it shout in rage-red. */
-.cell .drink-card.rare {
-  background: linear-gradient(180deg, #ff7a45, var(--rage));
-  color: #fff;
-  font-size: 0.94rem;
-  box-shadow: 0 8px 22px rgba(217, 43, 31, 0.55), inset 0 0 0 2px rgba(255, 255, 255, 0.18);
 }
 
 /* ---------- screen shake ---------- */
@@ -520,6 +486,70 @@ body.quake #screen-game { animation: quake 0.55s linear; }
   color: var(--rage);
 }
 .lose-panel p { color: var(--ink-dim); text-align: center; font-size: 0.95rem; }
+
+/* ---------- drink instruction modal ---------- */
+#overlay-drink {
+  position: fixed;
+  inset: 0;
+  z-index: 80; /* above the board + HUD, so it pauses play until dismissed */
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(8, 6, 12, 0.72);
+  backdrop-filter: blur(3px);
+}
+#overlay-drink.show { display: flex; animation: drink-fade 0.18s ease-out; }
+@keyframes drink-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.drink-modal {
+  width: min(360px, 100%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  padding: 30px 26px 26px;
+  border-radius: 24px;
+  text-align: center;
+  background: linear-gradient(180deg, #ffd36b, var(--amber));
+  color: #2a1a05;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55), inset 0 0 0 2px rgba(0, 0, 0, 0.12);
+  animation: drink-modal-pop 0.32s cubic-bezier(0.2, 1.5, 0.4, 1);
+}
+@keyframes drink-modal-pop {
+  0% { transform: scale(0.6); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
+.drink-modal-icon {
+  width: 72px;
+  height: 72px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.12);
+}
+.drink-modal-icon svg { width: 44px; height: 44px; }
+.drink-modal-text {
+  font-size: 1.5rem;
+  font-weight: 800;
+  line-height: 1.2;
+}
+.drink-modal .btn-primary {
+  width: 100%;
+  background: #2a1a05;
+  color: #ffd98a;
+  box-shadow: 0 5px 0 rgba(0, 0, 0, 0.35), 0 10px 24px rgba(0, 0, 0, 0.3);
+}
+/* "Everyone drinks" — rare, so make the whole modal shout in rage-red. */
+.drink-modal.rare {
+  background: linear-gradient(180deg, #ff7a45, var(--rage));
+  color: #fff;
+}
+.drink-modal.rare .drink-modal-text { font-size: 1.7rem; letter-spacing: 0.01em; }
+.drink-modal.rare .drink-modal-icon { background: rgba(0, 0, 0, 0.18); }
 
 /* ---------- small phones / landscape guards ---------- */
 @media (max-height: 600px) {

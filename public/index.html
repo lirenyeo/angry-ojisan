@@ -57,6 +57,15 @@
         </div>
       </div>
 
+      <div class="settings">
+        <div class="setting-row">
+          <span class="setting-label" data-i18n="drinkGame">Drinking game</span>
+          <button id="drink-toggle" class="toggle on" role="switch" aria-checked="true" aria-label="toggle drinking game">
+            <span class="toggle-knob"></span>
+          </button>
+        </div>
+      </div>
+
       <p class="footnote" data-i18n="footnote">Tap the uncles one by one — wake the angry one and you lose.</p>
     </div>
   </section>
@@ -144,6 +153,15 @@
       <p id="lose-stats"></p>
       <button id="btn-again" class="btn btn-primary" data-i18n="playAgain">Play again</button>
       <button id="btn-lose-home" class="btn btn-ghost" data-i18n="menu">Menu</button>
+    </div>
+  </div>
+
+  <!-- ============ DRINK INSTRUCTION ============ -->
+  <div id="overlay-drink" aria-live="assertive">
+    <div class="drink-modal">
+      <div id="drink-modal-icon" class="drink-modal-icon" aria-hidden="true"></div>
+      <p id="drink-modal-text" class="drink-modal-text"></p>
+      <button id="btn-drink-close" class="btn btn-primary" data-i18n="drinkClose">Cheers!</button>
     </div>
   </div>
 
