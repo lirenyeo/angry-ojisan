@@ -1,0 +1,20 @@
+# Netlify deploy: static game in public/, one serverless function for the
+# Angry Selfie Mode AI endpoint (POST /api/angrify, routed via the function's
+# own config.path). No build step — the game is plain JS/CSS and the function
+# has no dependencies.
+[build]
+  publish = "public"
+  functions = "netlify/functions"
+
+[build.environment]
+  NODE_VERSION = "22"
+
+# Mirror the security headers the Express server set. connect-src 'self' covers
+# the same-origin /api/angrify call.
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    X-Frame-Options = "DENY"
+    Referrer-Policy = "no-referrer"
+    Content-Security-Policy = "default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self'; base-uri 'self'; form-action 'self'"
