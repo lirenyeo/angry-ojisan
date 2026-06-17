@@ -61,24 +61,31 @@ setInterval(() => {
 const CHROMA =
   "a perfectly uniform, flat, solid chroma-key green background (pure RGB 0,255,0), with absolutely no green anywhere on the person";
 
-// Both prompts frame the job as a creative cartoon-sticker EDIT, not photo
-// reproduction — the model occasionally returns finishReason:NO_IMAGE when a
-// prompt reads like "reproduce this real person", so we keep it clearly stylized.
+// Both prompts frame the job as an EDIT of the supplied photo (not "reproduce
+// this real person from scratch") — that framing keeps Gemini from bailing with
+// finishReason:NO_IMAGE while still returning a REAL photo, not a cartoon. We
+// explicitly forbid cartoonifying so the result stays photorealistic.
+const REALISM =
+  "Keep this a realistic photograph of the SAME real person — do NOT cartoonify, " +
+  "stylize, illustrate or repaint them; preserve their real hair, glasses, skin texture " +
+  "and natural photographic lighting. It must still look like an actual photo of them.";
+
 const GEMINI_CALM_PROMPT =
-  "Create a fun cartoon-avatar sticker of this person: keep just their head, neck and the very " +
-  "top of their shoulders, centered, on " +
+  "Edit this photo. " +
+  REALISM +
+  " Cut out just their head, neck and the very top of their shoulders, centered, on " +
   CHROMA +
-  ". Keep their hair, glasses, skin tone and a calm, neutral expression, lightly stylized like " +
-  "a friendly cartoon. Square framing.";
+  ". Keep a calm, neutral expression. Photorealistic, square framing.";
 
 const GEMINI_ANGRY_PROMPT =
-  "Create a fun cartoon-avatar sticker of this person: keep just their head, neck and the very " +
-  "top of their shoulders, centered, on " +
+  "Edit this photo. " +
+  REALISM +
+  " Cut out just their head, neck and the very top of their shoulders, centered, on " +
   CHROMA +
-  ". Make their expression comically FURIOUS and enraged: deeply furrowed angry V-shaped " +
-  "eyebrows, intense glaring eyes, gritted teeth or an open shouting mouth, and flushed " +
-  "bright-red cheeks. Keep it clearly the SAME recognizable person — same hair, glasses, skin " +
-  "tone and framing — exaggerated and funny, never gory or scary. Square framing.";
+  ". Change ONLY their expression to comically, over-the-top FURIOUS: deeply furrowed " +
+  "V-shaped eyebrows, intense glaring eyes, gritted teeth or an open shouting mouth, and " +
+  "flushed red cheeks — exaggerated and funny, but still a real photo of them, never gory " +
+  "or scary. Keep the same hair, glasses, skin tone and framing. Photorealistic, square framing.";
 
 const GEMINI_ATTEMPTS = 3; // NO_IMAGE / transient errors return fast, so retrying is cheap
 

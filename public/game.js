@@ -13,6 +13,7 @@ const state = {
   round: 0, // bumped on every newRound so stale open-timeouts can bail
   classic: null, // {calm[], seeds[]}
   selfie: null, // {normalThumb, angryThumb, angryFull}
+  drinks: null, // per-cell drink instruction (or null) for this round — the drinking game
 };
 
 const $ = (sel) => document.querySelector(sel);
@@ -462,6 +463,61 @@ async function handleSelfie(file) {
   }
 }
 
+/* ========================= Drinking game ========================= */
+
+// Some uncles, when tapped, pop a drinking instruction instead of a flavour
+// quip. "Everyone drinks" is intentionally very rare (low weight); the rest are
+// common. i18n holds the text; the SVG keeps us off emojis per house style.
+const DRINK_TYPES = [
+  { id: "one", i18n: "drinkOne", weight: 30 },
+  { id: "left", i18n: "drinkLeft", weight: 28 },
+  { id: "right", i18n: "drinkRight", weight: 28 },
+  { id: "all", i18n: "drinkAll", weight: 3 }, // very rare
+];
+const DRINK_WEIGHT_TOTAL = DRINK_TYPES.reduce((s, d) => s + d.weight, 0);
+const DRINK_RATE = 0.5; // share of calm uncles that carry a drinking instruction
+
+const DRINK_ICONS = {
+  one: `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3.6" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M5.5 20a6.5 6.5 0 0 1 13 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>`,
+  left: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12H4m6-6-6 6 6 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+  right: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h16m-6-6 6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+  all: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 8h8v9a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M15 10h2.4A1.6 1.6 0 0 1 19 11.6v1.8A1.6 1.6 0 0 1 17.4 15H15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M8 8c.4-2 6.6-2 7 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>`,
+};
+
+function pickDrinkType() {
+  let r = Math.random() * DRINK_WEIGHT_TOTAL;
+  for (const d of DRINK_TYPES) {
+    if ((r -= d.weight) < 0) return d;
+  }
+  return DRINK_TYPES[0];
+}
+
+// Decide up front which uncles hold a drink instruction (the angry one never
+// does — he ends the round before any card matters).
+function assignDrinks() {
+  const drinks = new Array(state.grid).fill(null);
+  for (let i = 0; i < state.grid; i++) {
+    if (i === state.angryIndex) continue;
+    if (Math.random() < DRINK_RATE) drinks[i] = pickDrinkType();
+  }
+  return drinks;
+}
+
+function clinkSound(rare) {
+  // light "ding ding" on a drink card; a brighter triple for "everyone drinks"
+  tone({ type: "sine", from: 900, to: 1320, dur: 0.1, vol: 0.18 });
+  tone({ type: "sine", from: 1320, to: 1760, dur: 0.12, vol: 0.16, delay: 0.08 });
+  if (rare) tone({ type: "sine", from: 1760, to: 2300, dur: 0.16, vol: 0.18, delay: 0.18 });
+}
+
+function showDrinkCard(cell, type) {
+  const card = cell.querySelector(".drink-card");
+  card.innerHTML = `${DRINK_ICONS[type.id]}<span>${t(type.i18n)}</span>`;
+  card.classList.toggle("rare", type.id === "all");
+  cell.classList.add("drinking");
+  clinkSound(type.id === "all");
+}
+
 /* ============================== Game ============================== */
 
 const board = $("#board");
@@ -472,6 +528,7 @@ function newRound() {
   state.angryIndex = Math.floor(Math.random() * state.grid);
   state.openedCount = 0;
   state.over = false;
+  state.drinks = assignDrinks();
 
   // the secretly-furious uncle's angry face, generated from his own seed so
   // the reveal looks like "that same uncle, now enraged"
@@ -497,7 +554,8 @@ function newRound() {
     cell.setAttribute("aria-label", `Uncle ${i + 1}`);
     cell.innerHTML = `
       <span class="face"><img alt="" draggable="false" src="${characterFor(i)}"></span>
-      <span class="quip"></span>`;
+      <span class="quip"></span>
+      <span class="drink-card"></span>`;
     frag.appendChild(cell);
     cells.push(cell);
   }
@@ -554,10 +612,16 @@ function openCell(cell, i) {
     return;
   }
 
-  // a calm uncle — pops out with a quip and flies off
+  // a calm uncle — pops out and flies off. Some carry a drinking instruction
+  // (the drinking game); the rest just mutter a flavour quip.
   popSound();
   buzz(16);
-  cell.querySelector(".quip").textContent = randomQuip();
+  const drink = state.drinks?.[i];
+  if (drink) {
+    showDrinkCard(cell, drink);
+  } else {
+    cell.querySelector(".quip").textContent = randomQuip();
+  }
   cell.classList.add("flying");
   state.openedCount++;
   updateHud();
