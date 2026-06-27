@@ -9,6 +9,15 @@
 [build.environment]
   NODE_VERSION = "22"
 
+# The function imports ../../lib/gemini.mjs (shared with server.js). esbuild
+# traces it automatically; included_files guarantees it ships in the bundle.
+# NOTE: the 26s execution limit (vs the 10s default) is a Pro-plan setting —
+# enable it in Site config → Functions → Function timeout. The function itself
+# aborts Gemini at ~23s so it always returns a clean JSON error within that cap.
+[functions]
+  node_bundler = "esbuild"
+  included_files = ["lib/**"]
+
 # Mirror the security headers the Express server set. connect-src 'self' covers
 # the same-origin /api/angrify call.
 [[headers]]

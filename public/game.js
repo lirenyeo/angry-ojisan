@@ -12,7 +12,7 @@ const state = {
   busy: false, // guards selfie processing (not gameplay taps)
   round: 0, // bumped on every newRound so stale open-timeouts can bail
   classic: null, // {calm[], seeds[]}
-  selfie: null, // {normalThumb, angryThumb, angryFull}
+  selfie: null, // { src, calm, emotions:{id:dataUrl}, chosen, customText, generating }
   drinks: null, // per-cell drink instruction (or null) for this round — the drinking game
   drinkEnabled: true, // home-screen toggle; off = no drinking instructions at all
 };
@@ -110,12 +110,13 @@ function loadImage(src) {
   });
 }
 
-/** Downscale + recompress a user photo to <=1024px JPEG before upload. */
+/** Downscale + recompress a user photo to <=768px JPEG before upload. Smaller
+ *  input means a faster Gemini round-trip; 768px keeps a single face sharp. */
 async function optimizeFile(file) {
   const url = URL.createObjectURL(file);
   try {
     const img = await loadImage(url);
-    const MAX = 1024;
+    const MAX = 768;
     const scale = Math.min(1, MAX / Math.max(img.naturalWidth, img.naturalHeight));
     const w = Math.max(1, Math.round(img.naturalWidth * scale));
     const h = Math.max(1, Math.round(img.naturalHeight * scale));
@@ -130,32 +131,19 @@ async function optimizeFile(file) {
   }
 }
 
-const FALLBACK_ANALYSIS = {
-  faceDetected: false,
-  face: { x: 0.22, y: 0.14, w: 0.56, h: 0.62 },
-  tiltDegrees: 0,
-  leftBrow: { inner: { x: 0.44, y: 0.36 }, outer: { x: 0.32, y: 0.35 } },
-  rightBrow: { inner: { x: 0.56, y: 0.36 }, outer: { x: 0.68, y: 0.35 } },
-  leftEye: { x: 0.38, y: 0.41, w: 0.09 },
-  rightEye: { x: 0.62, y: 0.41, w: 0.09 },
-  mouth: { x: 0.4, y: 0.6, w: 0.2, h: 0.08 },
-  foreheadCenter: { x: 0.5, y: 0.25 },
-  cheekLeft: { x: 0.34, y: 0.52 },
-  cheekRight: { x: 0.66, y: 0.52 },
-};
-
-// Returns the server payload verbatim: { ok, kind: "cutout", calm, angry }
-// or { ok:false, reason }. Never throws — network failure resolves to ok:false.
-async function requestAngrify(dataUrl) {
+// One request -> one cut-out for `emotion` (+ free-text `custom` for the custom
+// mood). Returns the server payload { ok, cutout } or { ok:false, reason }.
+// Never throws — a network failure resolves to { ok:false }.
+async function requestAngrify(dataUrl, emotion, custom) {
   const controller = new AbortController();
-  // Generous: the server may retry Gemini a few times (NO_IMAGE returns fast,
-  // so retries are cheap) — don't abandon a request that's about to succeed.
-  const timer = setTimeout(() => controller.abort(), 120_000);
+  // One image per call now, so a tight bound is fine; the server returns within
+  // the platform timeout (26s on the Netlify Pro plan).
+  const timer = setTimeout(() => controller.abort(), 30_000);
   try {
     const res = await fetch("/api/angrify", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ image: dataUrl }),
+      body: JSON.stringify({ image: dataUrl, emotion, custom }),
       signal: controller.signal,
     });
     return await res.json();
@@ -167,12 +155,12 @@ async function requestAngrify(dataUrl) {
 }
 
 // Gemini returns the subject on a flat chroma-green backdrop (no alpha). Knock
-// the green out to transparent so it becomes a clean cut-out sticker.
-//
-// We flood-fill inward from the borders through connected green only — so
-// green clothing/eyes in the SUBJECT keep their pixels (no holes), and if
-// Gemini didn't actually produce a green background nothing is removed and the
-// face simply stays on whatever backdrop it has (never a green rectangle).
+// the green out to transparent so it becomes a clean cut-out sticker, flood-
+// filling inward from the borders through connected green only (so green in the
+// SUBJECT keeps its pixels). Returns { dataUrl, removed } where `removed` is the
+// fraction of pixels cleared; near-zero means Gemini didn't actually produce a
+// green background — a bad cut-out the caller should reject rather than show as
+// a full uncut photo. Returns null on a decode error.
 async function chromaKeyCutout(dataUrl, max = 640) {
   try {
     const img = await loadImage(dataUrl);
@@ -192,12 +180,14 @@ async function chromaKeyCutout(dataUrl, max = 640) {
       return g > 80 && g > r * 1.2 && g > b * 1.2; // tolerant: catches JPEG-noisy green
     };
     // Flood from every border pixel; alpha 0 doubles as the visited marker.
+    let cleared = 0;
     const stack = [];
     const visit = (x, y) => {
       if (x < 0 || y < 0 || x >= w || y >= h) return;
       const i = (y * w + x) * 4;
       if (d[i + 3] === 0 || !isGreen(i)) return;
       d[i + 3] = 0;
+      cleared++;
       stack.push(x, y);
     };
     for (let x = 0; x < w; x++) {
@@ -235,163 +225,190 @@ async function chromaKeyCutout(dataUrl, max = 640) {
       }
     }
     ctx.putImageData(id, 0, 0);
-    return c.toDataURL("image/png");
+    return { dataUrl: c.toDataURL("image/png"), removed: cleared / (w * h) };
   } catch {
-    return dataUrl;
+    return null;
   }
 }
 
-/* --------------------- Canvas rage compositor --------------------- */
-
-function drawAngerVein(ctx, cx, cy, r, lineW) {
-  ctx.save();
-  ctx.strokeStyle = "rgba(200,26,26,0.9)";
-  ctx.lineWidth = lineW;
-  ctx.lineCap = "round";
-  const arc = (x1, y1, qx, qy, x2, y2) => {
-    ctx.beginPath();
-    ctx.moveTo(cx + x1 * r, cy + y1 * r);
-    ctx.quadraticCurveTo(cx + qx * r, cy + qy * r, cx + x2 * r, cy + y2 * r);
-    ctx.stroke();
-  };
-  // 4 bulges of the classic anime cross-vein
-  arc(-1.0, -0.35, -0.45, -1.0, 0.0, -0.35);
-  arc(0.0, -0.35, 0.45, -1.0, 1.0, -0.35);
-  arc(-1.0, 0.35, -0.45, 1.0, 0.0, 0.35);
-  arc(0.0, 0.35, 0.45, 1.0, 1.0, 0.35);
-  ctx.restore();
+// Request + key out one emotion. Returns a transparent-PNG data URL, or null if
+// generation failed OR the result had no real green background to key (so we
+// never show a full uncut photo as a "sticker").
+async function generateCutout(src, emotion, custom) {
+  const res = await requestAngrify(src, emotion, custom);
+  if (!res?.ok || typeof res.cutout !== "string") return null;
+  const keyed = await chromaKeyCutout(res.cutout);
+  if (!keyed || keyed.removed < 0.05) return null;
+  return keyed.dataUrl;
 }
 
-function angryBrow(ctx, brow, eyeW, lineW, side) {
-  // Exaggerate: pull the inner end DOWN and toward the nose for the furious V.
-  const inner = { ...brow.inner };
-  const outer = { ...brow.outer };
-  inner.y += eyeW * 0.55;
-  outer.y -= eyeW * 0.18;
-  ctx.beginPath();
-  ctx.moveTo(outer.x, outer.y);
-  const midX = (outer.x + inner.x) / 2;
-  const midY = (outer.y + inner.y) / 2 - eyeW * 0.1;
-  ctx.quadraticCurveTo(midX, midY, inner.x, inner.y);
-  ctx.lineWidth = lineW;
-  ctx.lineCap = "round";
-  ctx.strokeStyle = "rgba(28,16,10,0.92)";
-  ctx.stroke();
-  // shadow under brow for depth
-  ctx.beginPath();
-  ctx.moveTo(outer.x + (side === "L" ? lineW * 0.3 : -lineW * 0.3), outer.y + lineW * 0.55);
-  ctx.quadraticCurveTo(midX, midY + lineW * 0.6, inner.x, inner.y + lineW * 0.6);
-  ctx.lineWidth = lineW * 0.45;
-  ctx.strokeStyle = "rgba(90,30,20,0.35)";
-  ctx.stroke();
+/* --------------------- Emotion picker (selfie) --------------------- */
+
+// Stroke-SVG faces in the house style (24x24, currentColor, no emoji) — each
+// chip's face tints amber when selected and is swapped for the anger-vein
+// spinner while its cut-out generates. Order here = order in the grid.
+const EMO_ORDER = ["angry", "sad", "shocked", "drunk", "laughing", "disgusted", "smug"];
+
+const EMO_ICON = {
+  angry:
+    `<svg viewBox="0 0 24 24" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9.2"/><path d="M7.4 8.2 10.6 9.9"/><path d="M16.6 8.2 13.4 9.9"/><path d="M8.6 16.7Q12 14.3 15.4 16.7"/></g><g fill="currentColor"><circle cx="9.4" cy="11.6" r="1"/><circle cx="14.6" cy="11.6" r="1"/></g></svg>`,
+  sad:
+    `<svg viewBox="0 0 24 24" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9.2"/><path d="M7.6 9.6Q9 8.4 10.4 9.4"/><path d="M16.4 9.6Q15 8.4 13.6 9.4"/><path d="M8.8 16.6Q12 14.3 15.2 16.6"/></g><g fill="currentColor"><circle cx="9.4" cy="11.8" r="1"/><circle cx="14.6" cy="11.8" r="1"/><path d="M9.2 12.6c-1 1.4-1 2.6 0 2.6s1-1.2 0-2.6z"/></g></svg>`,
+  shocked:
+    `<svg viewBox="0 0 24 24" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9.2"/><path d="M7.6 8Q9.2 7 10.8 8"/><path d="M16.4 8Q14.8 7 13.2 8"/><circle cx="9.4" cy="11.4" r="1.3"/><circle cx="14.6" cy="11.4" r="1.3"/><circle cx="12" cy="16.2" r="1.7"/></g></svg>`,
+  drunk:
+    `<svg viewBox="0 0 24 24" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9.2"/><path d="M8 11.4Q9.2 12.2 10.4 11.4"/><path d="M13.6 11.4Q14.8 12.2 16 11.4"/><path d="M8.4 15.6Q9.7 16.7 11 15.6 12.3 14.6 13.6 15.6 14.8 16.5 15.6 15.8"/></g><g fill="currentColor" opacity="0.55"><circle cx="8" cy="13.8" r="1.1"/><circle cx="16" cy="13.8" r="1.1"/></g></svg>`,
+  laughing:
+    `<svg viewBox="0 0 24 24" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9.2"/><path d="M7.8 11.6Q9.2 10.1 10.6 11.6"/><path d="M13.4 11.6Q14.8 10.1 16.2 11.6"/><path d="M8 14.2Q12 19 16 14.2Z"/></g></svg>`,
+  disgusted:
+    `<svg viewBox="0 0 24 24" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9.2"/><path d="M7.6 8.6 10.6 9.8"/><path d="M16.4 8.6 13.4 9.8"/><path d="M8.2 11.8Q9.3 11 10.4 11.8"/><path d="M11 12.6Q12 11.9 13 12.6"/><path d="M8.6 16Q11 14.7 13 15.8 14 16.3 15.4 15.4"/></g><g fill="currentColor"><circle cx="14.6" cy="11.9" r="1"/></g></svg>`,
+  smug:
+    `<svg viewBox="0 0 24 24" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9.2"/><path d="M7.6 8.2Q9.2 7.3 10.8 8.2"/><path d="M16.2 9.2Q15 8.8 13.6 9.2"/><path d="M8.2 11.6 10.4 11.6"/><path d="M13.6 11.6 15.8 11.6"/><path d="M8.8 16.2Q12 16.8 15.2 14.8"/></g></svg>`,
+  custom:
+    `<svg viewBox="0 0 24 24" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 19l1-3.7L15.2 6 18 8.8 8.8 18 5 19Z"/><path d="M13.9 7.3 16.7 10.1"/></g></svg>`,
+};
+
+const VEIN_SPINNER =
+  `<svg viewBox="0 0 100 100" aria-hidden="true"><g stroke="currentColor" stroke-width="11" stroke-linecap="round" fill="none"><path d="M22 38 Q34 18 50 33"/><path d="M78 38 Q66 18 50 33"/><path d="M22 62 Q34 82 50 67"/><path d="M78 62 Q66 82 50 67"/></g></svg>`;
+const CHECK_ICON =
+  `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.2 4.2L19 7" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+
+const labelKey = (id) => "emo" + id.charAt(0).toUpperCase() + id.slice(1);
+const chipEl = (id) => document.querySelector(`.emo-chip[data-emo="${id}"]`);
+
+// Build the 7-emotion + custom grid. Labels resolve through i18n at build time
+// (language is chosen on the home screen, before this ever renders).
+function renderEmotionPicker() {
+  const label = (id) => t(labelKey(id));
+  const chip = (id) =>
+    `<button class="emo-chip" type="button" role="radio" aria-checked="false" data-emo="${id}" title="${label(id)}">` +
+    `<span class="emo-icon" aria-hidden="true">${EMO_ICON[id]}</span>` +
+    `<span class="emo-spinner" aria-hidden="true">${VEIN_SPINNER}</span>` +
+    `<span class="emo-label">${label(id)}</span>` +
+    `<span class="emo-badge" aria-hidden="true">${CHECK_ICON}</span>` +
+    `</button>`;
+  $("#emotion-grid").innerHTML = [...EMO_ORDER, "custom"].map(chip).join("");
+  const input = $("#custom-input");
+  input.value = "";
+  input.placeholder = t("emoCustomPh");
+  $("#custom-row").classList.add("hidden");
 }
 
-/** Composite generic rage onto the photo at the given landmark positions
- *  (the heuristic fallback). Returns a dataURL. */
-function angrifyImage(img, analysis) {
-  const W = img.naturalWidth;
-  const H = img.naturalHeight;
-  const canvas = document.createElement("canvas");
-  canvas.width = W;
-  canvas.height = H;
-  const ctx = canvas.getContext("2d");
-  ctx.drawImage(img, 0, 0);
+// Per-chip lifecycle class (idle | generating | ready | error). `is-selected`
+// is managed separately by markSelected so a chip can be ready AND selected.
+function setChip(id, status) {
+  const chip = chipEl(id);
+  if (!chip) return;
+  chip.classList.remove("is-generating", "is-error");
+  if (status === "generating") chip.classList.add("is-generating");
+  else if (status === "error") chip.classList.add("is-error");
+  else if (status === "ready") chip.classList.add("is-ready");
+}
 
-  const a = analysis;
-  const px = (p) => ({ x: p.x * W, y: p.y * H });
-  const face = { x: a.face.x * W, y: a.face.y * H, w: a.face.w * W, h: a.face.h * H };
-  const faceCx = face.x + face.w / 2;
-  const faceCy = face.y + face.h / 2;
-  const eyeW = Math.max(((a.leftEye.w + a.rightEye.w) / 2) * W, face.w * 0.16);
+function markSelected(id) {
+  document.querySelectorAll(".emo-chip").forEach((c) => {
+    const on = c.dataset.emo === id;
+    c.classList.toggle("is-selected", on);
+    c.setAttribute("aria-checked", String(on));
+  });
+}
 
-  // 1. warm rage tint over the face region
-  ctx.save();
-  const flushGrad = ctx.createRadialGradient(faceCx, faceCy, face.w * 0.1, faceCx, faceCy, face.w * 0.85);
-  flushGrad.addColorStop(0, "rgba(255,46,18,0.30)");
-  flushGrad.addColorStop(0.7, "rgba(255,46,18,0.16)");
-  flushGrad.addColorStop(1, "rgba(255,46,18,0)");
-  ctx.globalCompositeOperation = "multiply";
-  ctx.fillStyle = flushGrad;
-  ctx.fillRect(0, 0, W, H);
-  ctx.restore();
+function setPreviewLoading(on) {
+  $("#preview-emotion-fig").classList.toggle("is-loading", on);
+}
 
-  // 2. hot cheeks
-  for (const cheek of [px(a.cheekLeft), px(a.cheekRight)]) {
-    const g = ctx.createRadialGradient(cheek.x, cheek.y, 1, cheek.x, cheek.y, eyeW * 1.1);
-    g.addColorStop(0, "rgba(225,40,30,0.34)");
-    g.addColorStop(1, "rgba(225,40,30,0)");
-    ctx.fillStyle = g;
-    ctx.fillRect(cheek.x - eyeW * 1.2, cheek.y - eyeW * 1.2, eyeW * 2.4, eyeW * 2.4);
+function setPreviewCaption(id, custom) {
+  $("#preview-emotion-cap").textContent = id === "custom" && custom ? custom : t(labelKey(id));
+}
+
+function enableStart(on) {
+  $("#btn-selfie-start").disabled = !on;
+}
+
+// Put the preview back to the last good chosen emotion (so a failed generation
+// never leaves the slot blank).
+function revertPreview() {
+  const sf = state.selfie;
+  if (sf?.chosen && sf.emotions[sf.chosen]) {
+    $("#preview-angry").src = sf.emotions[sf.chosen];
+    setPreviewCaption(sf.chosen, sf.customText);
   }
-
-  // 3. furious brows (landmarks are already in image space, tilt included)
-  const browW = Math.max(face.w * 0.045, 3);
-  angryBrow(
-    ctx,
-    { inner: px(a.leftBrow.inner), outer: px(a.leftBrow.outer) },
-    eyeW,
-    browW,
-    "L",
-  );
-  angryBrow(
-    ctx,
-    { inner: px(a.rightBrow.inner), outer: px(a.rightBrow.outer) },
-    eyeW,
-    browW,
-    "R",
-  );
-
-  // 4. furrow wrinkles between the brows
-  const glabX = (a.leftBrow.inner.x + a.rightBrow.inner.x) / 2 * W;
-  const glabY = (a.leftBrow.inner.y + a.rightBrow.inner.y) / 2 * H;
-  ctx.strokeStyle = "rgba(70,30,20,0.5)";
-  ctx.lineWidth = browW * 0.35;
-  ctx.lineCap = "round";
-  for (const dx of [-0.35, 0.35]) {
-    ctx.beginPath();
-    ctx.moveTo(glabX + dx * eyeW * 0.8, glabY - eyeW * 0.15);
-    ctx.lineTo(glabX + dx * eyeW * 0.45, glabY + eyeW * 0.55);
-    ctx.stroke();
-  }
-
-  // 5. anime anger vein near the temple/forehead — pick the side with room,
-  // then clamp inside the canvas for faces near the edge
-  const fh = px(a.foreheadCenter);
-  const veinR = eyeW * 0.55;
-  let veinX = fh.x + face.w * 0.28;
-  if (veinX + veinR * 1.2 > W) veinX = fh.x - face.w * 0.28;
-  veinX = Math.min(Math.max(veinX, veinR * 1.2), W - veinR * 1.2);
-  const veinY = Math.min(Math.max(fh.y - face.h * 0.02, veinR * 1.2), H - veinR * 1.2);
-  drawAngerVein(ctx, veinX, veinY, veinR, Math.max(face.w * 0.022, 2));
-
-  // 6. red vignette closing in
-  const vig = ctx.createRadialGradient(faceCx, faceCy, Math.max(face.w, face.h) * 0.7, W / 2, H / 2, Math.max(W, H) * 0.85);
-  vig.addColorStop(0, "rgba(120,0,0,0)");
-  vig.addColorStop(1, "rgba(90,0,0,0.55)");
-  ctx.fillStyle = vig;
-  ctx.fillRect(0, 0, W, H);
-
-  return canvas.toDataURL("image/jpeg", 0.9);
 }
 
-/** Square crop centered on the face (with padding) for grid thumbnails. */
-function cropFace(img, face, padFactor = 0.55, size = 360) {
-  const W = img.naturalWidth;
-  const H = img.naturalHeight;
-  const fw = face.w * W;
-  const fh = face.h * H;
-  const cx = (face.x + face.w / 2) * W;
-  const cy = (face.y + face.h / 2) * H - fh * 0.04;
-  let side = Math.max(fw, fh) * (1 + padFactor);
-  side = Math.min(side, W, H);
-  const sx = Math.min(Math.max(cx - side / 2, 0), W - side);
-  const sy = Math.min(Math.max(cy - side / 2, 0), H - side);
-  const canvas = document.createElement("canvas");
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext("2d");
-  ctx.drawImage(img, sx, sy, side, side, 0, 0, size, size);
-  return canvas.toDataURL("image/jpeg", 0.88);
+// Tap a chip: cached emotions select instantly; otherwise generate (one at a
+// time). Custom is routed to its text input by the caller.
+function selectEmotion(id) {
+  const sf = state.selfie;
+  if (!sf) return;
+  if (sf.emotions[id]) {
+    sf.chosen = id;
+    markSelected(id);
+    setChip(id, "ready");
+    $("#preview-angry").src = sf.emotions[id];
+    setPreviewCaption(id, sf.customText);
+    setPreviewLoading(false);
+    enableStart(true);
+    $("#selfie-note").textContent = t("noteReady");
+    return;
+  }
+  if (sf.generating) return; // one generation at a time (cached re-selects allowed above)
+  generateEmotion(id);
+}
+
+async function generateEmotion(id, custom) {
+  const sf = state.selfie;
+  if (!sf) return;
+  sf.generating = id;
+  setChip(id, "generating");
+  setPreviewLoading(true);
+  setPreviewCaption(id, custom);
+  $("#selfie-note").textContent = t("noteGenerating");
+
+  const cut = await generateCutout(sf.src, id, custom);
+  if (state.selfie !== sf) return; // a new selfie replaced this one mid-flight
+  sf.generating = null;
+
+  if (cut) {
+    sf.emotions[id] = cut;
+    if (id === "custom") sf.customText = custom;
+    setChip(id, "ready");
+    sf.chosen = id;
+    markSelected(id);
+    $("#preview-angry").src = cut;
+    setPreviewLoading(false);
+    enableStart(true);
+    $("#selfie-note").textContent = t("noteReady");
+  } else {
+    setChip(id, "error");
+    setPreviewLoading(false);
+    revertPreview();
+    enableStart(Boolean(sf.chosen && sf.emotions[sf.chosen]));
+    $("#selfie-note").textContent = t("noteEmotionFail");
+  }
+}
+
+function openCustom() {
+  const input = $("#custom-input");
+  $("#custom-row").classList.remove("hidden");
+  if (state.selfie?.customText) input.value = state.selfie.customText;
+  input.focus();
+}
+
+function submitCustom() {
+  const sf = state.selfie;
+  if (!sf || sf.generating) return;
+  // Mirror the server's sanitize enough to reject empty / quotes-only / control
+  // input locally (saves a doomed request + rate-limit slot).
+  const text = $("#custom-input").value.replace(/[\p{Cc}"“”`]+/gu, " ").replace(/\s+/g, " ").trim();
+  if (!text) return;
+  if (sf.emotions.custom && text === sf.customText) {
+    selectEmotion("custom"); // unchanged text -> reuse the cached custom face
+    return;
+  }
+  // Don't drop the old custom face: keep sf.chosen pointing at a valid cutout
+  // while the new one generates (a success overwrites it; a failure reverts to
+  // it), so Start never points at a missing reveal.
+  generateEmotion("custom", text);
 }
 
 /* ====================== Selfie processing flow ====================== */
@@ -414,53 +431,78 @@ function setProcessing(on) {
   }
 }
 
-// Heuristic rage compositor — used when Gemini is unavailable so the game still
-// plays. Draws generic anger onto the photo at fallback landmark positions.
-async function buildHeuristic(img) {
-  const angryFull = angrifyImage(img, FALLBACK_ANALYSIS);
-  const angryImg = await loadImage(angryFull);
-  state.selfie = {
-    normalThumb: cropFace(img, FALLBACK_ANALYSIS.face),
-    angryThumb: cropFace(angryImg, FALLBACK_ANALYSIS.face),
-    angryFull,
-  };
+function showSelfieError(msg) {
+  const el = $("#selfie-error");
+  el.textContent = msg;
+  el.classList.remove("hidden");
 }
 
+// Upload flow: generate the CALM cut-out (every board face) plus the default
+// ANGRY reveal, in parallel. Calm is required — if it fails we surface an error
+// and never enter the game (NO heuristic fallback). The re-take lock (state.busy)
+// covers only the calm critical path; once calm lands the picker is shown and
+// the default Angry keeps generating in the background (a re-take from here is
+// handled safely by the state.selfie identity guard). Each further emotion is
+// generated on demand and cached.
 async function handleSelfie(file) {
   if (!file || state.busy) return;
   state.busy = true;
   $("#selfie-result").classList.add("hidden");
+  $("#selfie-error").classList.add("hidden");
   setProcessing(true);
+
+  let src;
   try {
-    const dataUrl = await optimizeFile(file);
-    const img = await loadImage(dataUrl);
-    const res = await requestAngrify(dataUrl);
-    let note;
-
-    if (res?.ok && res.kind === "cutout" && res.calm && res.angry) {
-      // Gemini gave us the face on a green screen — key it out to a sticker.
-      const [calm, angry] = await Promise.all([
-        chromaKeyCutout(res.calm),
-        chromaKeyCutout(res.angry),
-      ]);
-      state.selfie = { normalThumb: calm, angryThumb: angry, angryFull: angry };
-      note = t("noteCutout");
-    } else {
-      // Gemini unavailable/failed — heuristic rage so the game still plays.
-      await buildHeuristic(img);
-      note = t("noteOffline");
-    }
-
-    $("#preview-normal").src = state.selfie.normalThumb;
-    $("#preview-angry").src = state.selfie.angryThumb;
-    $("#selfie-note").textContent = note;
-    $("#selfie-result").classList.remove("hidden");
+    src = await optimizeFile(file);
   } catch (err) {
     console.error(err);
-    $("#selfie-note").textContent = t("noteError");
-  } finally {
     setProcessing(false);
     state.busy = false;
+    showSelfieError(t("noteError"));
+    return;
+  }
+
+  const calmP = generateCutout(src, "calm");
+  const angryP = generateCutout(src, "angry");
+  const calm = await calmP;
+  setProcessing(false);
+  state.busy = false; // calm done — a re-take is allowed from here on
+
+  if (!calm) {
+    showSelfieError(t("noteError"));
+    return;
+  }
+
+  const sf = { src, calm, emotions: {}, chosen: null, customText: "", generating: "angry" };
+  state.selfie = sf;
+  renderEmotionPicker();
+  $("#preview-normal").src = calm;
+  $("#preview-angry").removeAttribute("src");
+  setPreviewCaption("angry");
+  enableStart(false);
+  $("#selfie-result").classList.remove("hidden");
+
+  // the default Angry reveal is already in flight
+  setChip("angry", "generating");
+  setPreviewLoading(true);
+  $("#selfie-note").textContent = t("noteGenerating");
+
+  const angry = await angryP;
+  if (state.selfie !== sf) return; // a newer selfie replaced this one mid-flight
+  sf.generating = null;
+  if (angry) {
+    sf.emotions.angry = angry;
+    sf.chosen = "angry";
+    setChip("angry", "ready");
+    markSelected("angry");
+    $("#preview-angry").src = angry;
+    setPreviewLoading(false);
+    enableStart(true);
+    $("#selfie-note").textContent = t("noteReady");
+  } else {
+    setChip("angry", "error");
+    setPreviewLoading(false);
+    $("#selfie-note").textContent = t("notePick");
   }
 }
 
@@ -572,21 +614,24 @@ function newRound() {
   closeDrinkModal();
 }
 
-// Every uncle looks calm up front — you can't tell which is angry until tapped.
+// Every uncle looks calm up front — you can't tell which is the bad one until tapped.
 function characterFor(index) {
-  if (state.mode === "selfie" && state.selfie) return state.selfie.normalThumb;
+  if (state.mode === "selfie" && state.selfie) return state.selfie.calm;
   return state.classic.calm[index];
 }
 
-// Small angry face swapped into the tapped cell.
+// The chosen-emotion reveal face — swapped into the tapped cell and shown full
+// on the lose overlay (the same cut-out serves both).
+function selfieReveal() {
+  const sf = state.selfie;
+  return sf ? sf.emotions[sf.chosen] : null;
+}
 function angryThumbImage() {
-  if (state.mode === "selfie" && state.selfie) return state.selfie.angryThumb;
+  if (state.mode === "selfie" && state.selfie) return selfieReveal();
   return state.classicAngryReveal;
 }
-
-// Full-size angry face for the lose overlay.
 function angryRevealImage() {
-  if (state.mode === "selfie" && state.selfie) return state.selfie.angryFull;
+  if (state.mode === "selfie" && state.selfie) return selfieReveal();
   return state.classicAngryReveal;
 }
 
@@ -757,11 +802,37 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 
-  // selfie screen
-  $("#input-camera").addEventListener("change", (e) => handleSelfie(e.target.files[0]));
-  $("#input-library").addEventListener("change", (e) => handleSelfie(e.target.files[0]));
-  $("#btn-selfie-start").addEventListener("click", () => startGame("selfie"));
+  // selfie screen — reset the input value so picking the SAME file again still
+  // fires `change` (lets you retake the same shot).
+  const onPick = (e) => {
+    const file = e.target.files[0];
+    e.target.value = "";
+    handleSelfie(file);
+  };
+  $("#input-camera").addEventListener("change", onPick);
+  $("#input-library").addEventListener("change", onPick);
+  $("#btn-selfie-start").addEventListener("click", () => {
+    // disabled gate + a safety check: never start without a real reveal cutout
+    if ($("#btn-selfie-start").disabled || !selfieReveal()) return;
+    startGame("selfie");
+  });
   $("#btn-selfie-back").addEventListener("click", () => show("home"));
+
+  // emotion picker — delegate chip taps; custom opens a text input.
+  $("#emotion-grid").addEventListener("click", (e) => {
+    const chip = e.target.closest(".emo-chip");
+    if (!chip) return;
+    const id = chip.dataset.emo;
+    if (id === "custom") openCustom();
+    else selectEmotion(id);
+  });
+  $("#custom-go").addEventListener("click", submitCustom);
+  $("#custom-input").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      submitCustom();
+    }
+  });
 
   // game
   board.addEventListener("pointerdown", (e) => {

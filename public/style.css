@@ -266,10 +266,132 @@ body {
 .preview-row figcaption { font-size: 0.85rem; color: var(--ink-dim); font-weight: 700; }
 .preview-row .angry-cap { color: var(--rage); }
 .preview-row .arrow { width: 26px; height: 26px; color: var(--ink-dim); flex: 0 0 auto; }
-.selfie-note { color: var(--ink-dim); font-size: 0.9rem; }
-#selfie-result { display: flex; flex-direction: column; gap: 14px; }
+.selfie-note { color: var(--ink-dim); font-size: 0.9rem; min-height: 1.2em; }
+#selfie-result { display: flex; flex-direction: column; gap: 16px; }
 .back { margin-top: 4px; }
 .privacy { font-size: 0.75rem; color: var(--ink-dim); opacity: 0.65; }
+
+.selfie-error {
+  color: #ffb4a8;
+  font-size: 0.9rem;
+  font-weight: 700;
+  background: rgba(217, 43, 31, 0.14);
+  box-shadow: inset 0 0 0 1.5px rgba(217, 43, 31, 0.4);
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+
+/* ---------- selfie emotion picker ---------- */
+/* the reveal slot: spinner overlay while its emotion generates; empty until the
+   first face lands (setting img.src reveals it) */
+#preview-emotion-fig { position: relative; }
+#preview-angry:not([src]) { visibility: hidden; }
+.preview-spinner { position: absolute; inset: 0; display: none; place-items: center; color: var(--rage); }
+.preview-spinner svg { width: 46px; height: 46px; animation: vein-throb 0.9s ease-in-out infinite; }
+#preview-emotion-fig.is-loading .preview-spinner { display: grid; }
+#preview-emotion-fig.is-loading #preview-angry { filter: brightness(0.45) saturate(0.55); }
+
+.emotion-pick { display: flex; flex-direction: column; gap: 10px; align-items: center; }
+.emotion-pick-label {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--ink-dim);
+}
+.emotion-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr); /* 7 emotions + custom -> 4x2 */
+  gap: 6px;
+  width: 100%;
+  background: rgba(255, 255, 255, 0.06);
+  padding: 6px;
+  border-radius: 14px;
+}
+.emo-chip {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 10px 4px 8px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--ink-dim);
+  font-family: var(--font);
+  font-weight: 700;
+  font-size: 0.72rem;
+  cursor: pointer;
+  transition: transform 0.1s ease, background 0.15s ease, color 0.15s ease;
+}
+.emo-chip:active { transform: scale(0.92); }
+.emo-icon { width: 30px; height: 30px; display: grid; place-items: center; }
+.emo-icon svg { width: 30px; height: 30px; }
+.emo-label { line-height: 1.05; }
+
+/* selected — the app's single selected idiom (amber fill, dark ink) */
+.emo-chip.is-selected { background: var(--amber); color: #2a1a05; }
+
+/* generating — hide the face, throb the anger-vein spinner, lock taps */
+.emo-spinner { position: absolute; top: 10px; width: 30px; height: 30px; display: none; place-items: center; color: var(--rage); }
+.emo-spinner svg { width: 26px; height: 26px; animation: vein-throb 0.9s ease-in-out infinite; }
+.emo-chip.is-generating { color: var(--rage); pointer-events: none; }
+.emo-chip.is-generating .emo-icon { opacity: 0; }
+.emo-chip.is-generating .emo-spinner { display: grid; }
+
+/* error — rage inset ring; tap to retry */
+.emo-chip.is-error { box-shadow: inset 0 0 0 1.5px var(--rage); color: var(--ink); }
+
+/* check badge, top-right, only when selected */
+.emo-badge {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 15px;
+  height: 15px;
+  display: none;
+  place-items: center;
+  color: #2a1a05;
+}
+.emo-badge svg { width: 15px; height: 15px; }
+.emo-chip.is-selected .emo-badge { display: grid; }
+
+/* custom mood input */
+.custom-row { display: flex; gap: 8px; width: 100%; }
+#custom-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 44px;
+  padding: 0 14px;
+  border: none;
+  border-radius: 12px;
+  background: var(--card);
+  color: var(--ink);
+  font-family: var(--font);
+  font-weight: 600;
+  font-size: 0.95rem;
+  box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, 0.12);
+}
+#custom-input:focus { outline: none; box-shadow: inset 0 0 0 2px var(--amber); }
+#custom-input::placeholder { color: var(--ink-dim); opacity: 0.7; }
+.custom-go {
+  flex: 0 0 auto;
+  width: 48px;
+  height: 44px;
+  border: none;
+  border-radius: 12px;
+  background: linear-gradient(180deg, var(--amber), var(--amber-deep));
+  color: #2a1a05;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: transform 0.1s ease;
+}
+.custom-go:active { transform: scale(0.94); }
+.custom-go svg { width: 22px; height: 22px; }
+
+/* start is disabled until a reveal face is ready */
+#btn-selfie-start:disabled { opacity: 0.5; filter: grayscale(0.3); cursor: default; pointer-events: none; }
 
 /* ---------- game ---------- */
 .hud {

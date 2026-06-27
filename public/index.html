@@ -101,6 +101,8 @@
         <p id="processing-line">Locating your inner ojisan...</p>
       </div>
 
+      <p id="selfie-error" class="selfie-error hidden" aria-live="polite"></p>
+
       <div id="selfie-result" class="hidden">
         <div class="preview-row">
           <figure>
@@ -108,13 +110,28 @@
             <figcaption data-i18n="previewYou">You</figcaption>
           </figure>
           <svg class="arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h14m-5-6 6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          <figure>
-            <img id="preview-angry" alt="your angry self">
-            <figcaption class="angry-cap" data-i18n="previewAngry">Angry You</figcaption>
+          <figure id="preview-emotion-fig">
+            <img id="preview-angry" alt="your chosen face">
+            <span class="preview-spinner" aria-hidden="true">
+              <svg viewBox="0 0 100 100"><g stroke="currentColor" stroke-width="9" stroke-linecap="round" fill="none"><path d="M22 38 Q34 18 50 33"/><path d="M78 38 Q66 18 50 33"/><path d="M22 62 Q34 82 50 67"/><path d="M78 62 Q66 82 50 67"/></g></svg>
+            </span>
+            <figcaption id="preview-emotion-cap" class="angry-cap" data-i18n="previewAngry">Angry You</figcaption>
           </figure>
         </div>
+
+        <div class="emotion-pick">
+          <span class="emotion-pick-label" data-i18n="emoPick">Pick a face</span>
+          <div id="emotion-grid" class="emotion-grid" role="radiogroup" aria-label="pick an emotion"></div>
+          <div id="custom-row" class="custom-row hidden">
+            <input id="custom-input" type="text" maxlength="60" autocomplete="off" autocapitalize="none" spellcheck="false" enterkeyhint="go" placeholder="">
+            <button id="custom-go" class="custom-go" aria-label="generate custom face">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h14m-5-6 6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+          </div>
+        </div>
+
         <p id="selfie-note" class="selfie-note"></p>
-        <button id="btn-selfie-start" class="btn btn-primary" data-i18n="btnSelfieStart">Hide me in the crowd</button>
+        <button id="btn-selfie-start" class="btn btn-primary" data-i18n="btnSelfieStart" disabled>Hide me in the crowd</button>
       </div>
 
       <button id="btn-selfie-back" class="btn btn-ghost back" data-i18n="btnBack">Back</button>
