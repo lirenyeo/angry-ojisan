@@ -34,16 +34,16 @@
         </svg>
         <h1>Sohai<br>Friends</h1>
       </div>
-      <p class="tagline" data-i18n-html="tagline">A crowd of uncles, crammed in tight.<br>One of them is <em>furious</em>.</p>
+      <p class="tagline" data-i18n-html="tagline">One face in the crowd is <em>furious</em>.<br>Tap them one by one — don't wake it.</p>
 
       <div class="menu">
-        <button id="btn-classic" class="btn btn-primary">
+        <button id="btn-selfie" class="btn btn-primary">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h3l1.5-2h7L17 7h3a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><circle cx="12" cy="13.5" r="3.6" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
+          <span data-i18n="btnSelfie">Selfie Mode</span>
+        </button>
+        <button id="btn-classic" class="btn btn-accent">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9.5 12 4l9 5.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M3 9.5 12 14l9-4.5M12 14v6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
           <span data-i18n="btnClassic">Classic Uncles</span>
-        </button>
-        <button id="btn-selfie" class="btn btn-accent">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h3l1.5-2h7L17 7h3a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><circle cx="12" cy="13.5" r="3.6" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
-          <span data-i18n="btnSelfie">Angry Selfie Mode</span>
         </button>
       </div>
 
@@ -66,17 +66,30 @@
         </div>
       </div>
 
-      <p class="footnote" data-i18n="footnote">Tap the uncles one by one — wake the angry one and you lose.</p>
+      <p class="footnote" data-i18n="footnote">Take a selfie to hide your own face in the crowd.</p>
     </div>
   </section>
 
   <!-- ============ SELFIE SETUP ============ -->
   <section id="screen-selfie" class="screen scrollable">
     <div class="selfie-inner">
-      <h2 data-i18n="selfieTitle">Angry Selfie Mode</h2>
-      <p class="selfie-sub" data-i18n="selfieSub">Take a selfie — AI cuts you out and turns you into the angry ojisan hiding in the crowd.</p>
+      <h2 data-i18n="selfieTitle">Selfie Mode</h2>
+      <p class="selfie-sub" data-i18n="selfieSub">Pick a face, then take a selfie — AI cuts you out and drops you into the crowd.</p>
 
-      <div id="selfie-actions">
+      <!-- Step 1: pick the face you'll hide as (always visible) -->
+      <div class="emotion-pick">
+        <span class="emotion-pick-label" data-i18n="emoPick">Pick a face</span>
+        <div id="emotion-grid" class="emotion-grid" role="radiogroup" aria-label="pick an emotion"></div>
+        <div id="custom-row" class="custom-row hidden">
+          <input id="custom-input" type="text" maxlength="60" autocomplete="off" autocapitalize="none" spellcheck="false" enterkeyhint="go" placeholder="">
+          <button id="custom-go" class="custom-go" aria-label="set custom face">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h14m-5-6 6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Step 2: capture — revealed once a face is picked -->
+      <div id="selfie-actions" class="hidden">
         <label class="btn btn-accent file-btn">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h3l1.5-2h7L17 7h3a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><circle cx="12" cy="13.5" r="3.6" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
           <span data-i18n="btnCamera">Take a selfie</span>
@@ -89,6 +102,8 @@
         </label>
       </div>
 
+      <p id="selfie-note" class="selfie-note"></p>
+
       <div id="selfie-processing" class="processing hidden" aria-live="polite">
         <div class="vein-spinner">
           <svg viewBox="0 0 100 100" aria-hidden="true">
@@ -98,7 +113,7 @@
             </g>
           </svg>
         </div>
-        <p id="processing-line">Locating your inner ojisan...</p>
+        <p id="processing-line">Cutting you out of the photo...</p>
       </div>
 
       <p id="selfie-error" class="selfie-error hidden" aria-live="polite"></p>
@@ -118,24 +133,11 @@
             <figcaption id="preview-emotion-cap" class="angry-cap" data-i18n="previewAngry">Angry You</figcaption>
           </figure>
         </div>
-
-        <div class="emotion-pick">
-          <span class="emotion-pick-label" data-i18n="emoPick">Pick a face</span>
-          <div id="emotion-grid" class="emotion-grid" role="radiogroup" aria-label="pick an emotion"></div>
-          <div id="custom-row" class="custom-row hidden">
-            <input id="custom-input" type="text" maxlength="60" autocomplete="off" autocapitalize="none" spellcheck="false" enterkeyhint="go" placeholder="">
-            <button id="custom-go" class="custom-go" aria-label="generate custom face">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h14m-5-6 6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            </button>
-          </div>
-        </div>
-
-        <p id="selfie-note" class="selfie-note"></p>
         <button id="btn-selfie-start" class="btn btn-primary" data-i18n="btnSelfieStart" disabled>Hide me in the crowd</button>
       </div>
 
       <button id="btn-selfie-back" class="btn btn-ghost back" data-i18n="btnBack">Back</button>
-      <p class="privacy" data-i18n="privacy">Your selfie is processed in-memory to generate your angry face, and never stored on our server.</p>
+      <p class="privacy" data-i18n="privacy">Your selfie is processed in-memory to generate your faces, and never stored on our server.</p>
     </div>
   </section>
 

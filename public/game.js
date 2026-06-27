@@ -13,6 +13,9 @@ const state = {
   round: 0, // bumped on every newRound so stale open-timeouts can bail
   classic: null, // {calm[], seeds[]}
   selfie: null, // { src, calm, emotions:{id:dataUrl}, chosen, customText, generating }
+  pickedEmotion: null, // step-1 choice before a selfie exists
+  pickedCustom: "", // custom mood text for the step-1 choice
+  selfieToken: 0, // bumped on every selfie-screen entry; invalidates in-flight captures
   drinks: null, // per-cell drink instruction (or null) for this round — the drinking game
   drinkEnabled: true, // home-screen toggle; off = no drinking instructions at all
 };
@@ -244,28 +247,29 @@ async function generateCutout(src, emotion, custom) {
 
 /* --------------------- Emotion picker (selfie) --------------------- */
 
-// Stroke-SVG faces in the house style (24x24, currentColor, no emoji) — each
-// chip's face tints amber when selected and is swapped for the anger-vein
-// spinner while its cut-out generates. Order here = order in the grid.
+// Bold colourful cartoon emoticon faces drawn as inline SVG (64x64, no emoji
+// font) — the chip selected state is an amber ring (not a tint) so the faces
+// stay colourful, and the face is swapped for the anger-vein spinner while its
+// cut-out generates. Order here = order in the grid.
 const EMO_ORDER = ["angry", "sad", "shocked", "drunk", "laughing", "disgusted", "smug"];
 
 const EMO_ICON = {
   angry:
-    `<svg viewBox="0 0 24 24" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9.2"/><path d="M7.4 8.2 10.6 9.9"/><path d="M16.6 8.2 13.4 9.9"/><path d="M8.6 16.7Q12 14.3 15.4 16.7"/></g><g fill="currentColor"><circle cx="9.4" cy="11.6" r="1"/><circle cx="14.6" cy="11.6" r="1"/></g></svg>`,
+    `<svg viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="25" fill="#ffce47"/><circle cx="32" cy="32" r="25" fill="none" stroke="#e3a52f" stroke-width="2"/><ellipse cx="18" cy="39" rx="5.5" ry="3.4" fill="#ff5b4d" opacity="0.5"/><ellipse cx="46" cy="39" rx="5.5" ry="3.4" fill="#ff5b4d" opacity="0.5"/><g stroke="#3a2a14" stroke-width="4.5" stroke-linecap="round"><path d="M15 21 L28 27"/><path d="M49 21 L36 27"/></g><circle cx="23" cy="31" r="3.1" fill="#3a2a14"/><circle cx="41" cy="31" r="3.1" fill="#3a2a14"/><path d="M22 47 Q32 39 42 47 Q32 52 22 47 Z" fill="#7a2016"/><path d="M25 45.6 Q32 42.8 39 45.6 L38 47.4 Q32 45.1 26 47.4 Z" fill="#fff"/><g stroke="#e3372b" stroke-width="2.3" stroke-linecap="round" fill="none"><path d="M46 13 Q49 16 46 19"/><path d="M53 13 Q50 16 53 19"/><path d="M46.5 12 Q49.5 9 52.5 12"/></g></svg>`,
   sad:
-    `<svg viewBox="0 0 24 24" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9.2"/><path d="M7.6 9.6Q9 8.4 10.4 9.4"/><path d="M16.4 9.6Q15 8.4 13.6 9.4"/><path d="M8.8 16.6Q12 14.3 15.2 16.6"/></g><g fill="currentColor"><circle cx="9.4" cy="11.8" r="1"/><circle cx="14.6" cy="11.8" r="1"/><path d="M9.2 12.6c-1 1.4-1 2.6 0 2.6s1-1.2 0-2.6z"/></g></svg>`,
+    `<svg viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="25" fill="#ffce47"/><circle cx="32" cy="32" r="25" fill="none" stroke="#e3a52f" stroke-width="2"/><g stroke="#3a2a14" stroke-width="4" stroke-linecap="round" fill="none"><path d="M16 26 Q23 21 29 25"/><path d="M48 26 Q41 21 35 25"/></g><circle cx="23" cy="32" r="3.1" fill="#3a2a14"/><circle cx="41" cy="32" r="3.1" fill="#3a2a14"/><path d="M19 35 q-3.4 6 0 8 q3.4 -2 0 -8 z" fill="#4db6f0"/><path d="M23 48 Q32 41 41 48" stroke="#3a2a14" stroke-width="4" stroke-linecap="round" fill="none"/></svg>`,
   shocked:
-    `<svg viewBox="0 0 24 24" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9.2"/><path d="M7.6 8Q9.2 7 10.8 8"/><path d="M16.4 8Q14.8 7 13.2 8"/><circle cx="9.4" cy="11.4" r="1.3"/><circle cx="14.6" cy="11.4" r="1.3"/><circle cx="12" cy="16.2" r="1.7"/></g></svg>`,
+    `<svg viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="25" fill="#ffce47"/><circle cx="32" cy="32" r="25" fill="none" stroke="#e3a52f" stroke-width="2"/><g stroke="#3a2a14" stroke-width="3.6" stroke-linecap="round" fill="none"><path d="M16 21 Q23 17 30 21"/><path d="M48 21 Q41 17 34 21"/></g><circle cx="23" cy="31" r="5.4" fill="#fff" stroke="#3a2a14" stroke-width="2"/><circle cx="41" cy="31" r="5.4" fill="#fff" stroke="#3a2a14" stroke-width="2"/><circle cx="23" cy="32" r="2.3" fill="#3a2a14"/><circle cx="41" cy="32" r="2.3" fill="#3a2a14"/><ellipse cx="32" cy="47" rx="4.6" ry="6" fill="#7a2016"/></svg>`,
   drunk:
-    `<svg viewBox="0 0 24 24" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9.2"/><path d="M8 11.4Q9.2 12.2 10.4 11.4"/><path d="M13.6 11.4Q14.8 12.2 16 11.4"/><path d="M8.4 15.6Q9.7 16.7 11 15.6 12.3 14.6 13.6 15.6 14.8 16.5 15.6 15.8"/></g><g fill="currentColor" opacity="0.55"><circle cx="8" cy="13.8" r="1.1"/><circle cx="16" cy="13.8" r="1.1"/></g></svg>`,
+    `<svg viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="25" fill="#ffce47"/><circle cx="32" cy="32" r="25" fill="none" stroke="#e3a52f" stroke-width="2"/><ellipse cx="18" cy="38" rx="5.5" ry="3.4" fill="#ff8fb0" opacity="0.6"/><ellipse cx="46" cy="38" rx="5.5" ry="3.4" fill="#ff8fb0" opacity="0.6"/><g stroke="#3a2a14" stroke-width="3.4" stroke-linecap="round" fill="none"><path d="M18 30 Q23 34 28 30"/><path d="M36 30 Q41 34 46 30"/><path d="M22 46 Q27 50 32 46 Q37 42 42 46"/></g></svg>`,
   laughing:
-    `<svg viewBox="0 0 24 24" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9.2"/><path d="M7.8 11.6Q9.2 10.1 10.6 11.6"/><path d="M13.4 11.6Q14.8 10.1 16.2 11.6"/><path d="M8 14.2Q12 19 16 14.2Z"/></g></svg>`,
+    `<svg viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="25" fill="#ffce47"/><circle cx="32" cy="32" r="25" fill="none" stroke="#e3a52f" stroke-width="2"/><g stroke="#3a2a14" stroke-width="3.8" stroke-linecap="round" fill="none"><path d="M17 31 Q23 25 29 31"/><path d="M35 31 Q41 25 47 31"/></g><path d="M19 39 Q32 57 45 39 Z" fill="#7a2016"/><path d="M20.5 40 Q32 44.5 43.5 40 L42.4 42.8 Q32 46.4 21.6 42.8 Z" fill="#fff"/><path d="M27 51 Q32 56 37 51 Q32 48 27 51 Z" fill="#ff7a7a"/></svg>`,
   disgusted:
-    `<svg viewBox="0 0 24 24" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9.2"/><path d="M7.6 8.6 10.6 9.8"/><path d="M16.4 8.6 13.4 9.8"/><path d="M8.2 11.8Q9.3 11 10.4 11.8"/><path d="M11 12.6Q12 11.9 13 12.6"/><path d="M8.6 16Q11 14.7 13 15.8 14 16.3 15.4 15.4"/></g><g fill="currentColor"><circle cx="14.6" cy="11.9" r="1"/></g></svg>`,
+    `<svg viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="25" fill="#c3d24a"/><circle cx="32" cy="32" r="25" fill="none" stroke="#9bb235" stroke-width="2"/><g stroke="#3a2a14" stroke-width="4" stroke-linecap="round"><path d="M16 24 L28 27"/><path d="M48 24 L36 27"/></g><path d="M19 32 Q23 29 27 32" stroke="#3a2a14" stroke-width="3.2" stroke-linecap="round" fill="none"/><circle cx="41" cy="31" r="3" fill="#3a2a14"/><path d="M29 35 Q32 33 35 35" stroke="#3a2a14" stroke-width="2.3" stroke-linecap="round" fill="none"/><path d="M22 47 Q27 44 32 47 Q37 50 42 44.5" stroke="#3a2a14" stroke-width="3.4" stroke-linecap="round" fill="none"/></svg>`,
   smug:
-    `<svg viewBox="0 0 24 24" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9.2"/><path d="M7.6 8.2Q9.2 7.3 10.8 8.2"/><path d="M16.2 9.2Q15 8.8 13.6 9.2"/><path d="M8.2 11.6 10.4 11.6"/><path d="M13.6 11.6 15.8 11.6"/><path d="M8.8 16.2Q12 16.8 15.2 14.8"/></g></svg>`,
+    `<svg viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="25" fill="#ffce47"/><circle cx="32" cy="32" r="25" fill="none" stroke="#e3a52f" stroke-width="2"/><path d="M16 23 Q23 18 30 23" stroke="#3a2a14" stroke-width="4" stroke-linecap="round" fill="none"/><path d="M35 27 L47 27" stroke="#3a2a14" stroke-width="4" stroke-linecap="round"/><g stroke="#3a2a14" stroke-width="3.4" stroke-linecap="round"><path d="M19 32 L28 32"/><path d="M36 32 L45 32"/></g><path d="M22 46 Q32 50 43 43" stroke="#3a2a14" stroke-width="3.6" stroke-linecap="round" fill="none"/></svg>`,
   custom:
-    `<svg viewBox="0 0 24 24" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 19l1-3.7L15.2 6 18 8.8 8.8 18 5 19Z"/><path d="M13.9 7.3 16.7 10.1"/></g></svg>`,
+    `<svg viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="25" fill="#ffce47"/><circle cx="32" cy="32" r="25" fill="none" stroke="#e3a52f" stroke-width="2"/><circle cx="23" cy="29" r="2.9" fill="#3a2a14"/><circle cx="41" cy="29" r="2.9" fill="#3a2a14"/><path d="M24 43 Q32 47 40 43" stroke="#3a2a14" stroke-width="2.6" stroke-linecap="round" stroke-dasharray="0.5 4.6" fill="none"/><g transform="translate(34 34)"><path d="M1.5 17 L3 10.5 L13.5 0 L18.5 5 L8 15.5 L1.5 17 Z" fill="#f0a432" stroke="#6b4a12" stroke-width="1.6" stroke-linejoin="round"/><path d="M11 3 L15.5 7.5" stroke="#6b4a12" stroke-width="1.6"/></g></svg>`,
 };
 
 const VEIN_SPINNER =
@@ -395,20 +399,87 @@ function openCustom() {
 }
 
 function submitCustom() {
+  if (state.busy) return;
   const sf = state.selfie;
-  if (!sf || sf.generating) return;
+  if (sf && sf.generating) return;
   // Mirror the server's sanitize enough to reject empty / quotes-only / control
   // input locally (saves a doomed request + rate-limit slot).
   const text = $("#custom-input").value.replace(/[\p{Cc}"“”`]+/gu, " ").replace(/\s+/g, " ").trim();
   if (!text) return;
-  if (sf.emotions.custom && text === sf.customText) {
-    selectEmotion("custom"); // unchanged text -> reuse the cached custom face
+  if (sf) {
+    // post-capture: generate on the current selfie (or reuse the cached custom)
+    if (sf.emotions.custom && text === sf.customText) {
+      selectEmotion("custom");
+      return;
+    }
+    // Keep the old custom cutout cached: a success overwrites it, a failure
+    // reverts to it, so Start never points at a missing reveal.
+    generateEmotion("custom", text);
+  } else {
+    pickPre("custom", text); // pre-capture: just the step-1 choice
+  }
+}
+
+// A chip tap. Custom always opens its input. Before a selfie exists a tap just
+// selects the target face and reveals capture (step 2); once a selfie exists it
+// generates / selects on that selfie.
+function pickEmotion(id) {
+  if (state.busy) return;
+  if (id === "custom") {
+    openCustom();
     return;
   }
-  // Don't drop the old custom face: keep sf.chosen pointing at a valid cutout
-  // while the new one generates (a success overwrites it; a failure reverts to
-  // it), so Start never points at a missing reveal.
-  generateEmotion("custom", text);
+  if (state.selfie) selectEmotion(id);
+  else pickPre(id, "");
+}
+
+// Record the step-1 choice and reveal the capture buttons.
+function pickPre(id, custom) {
+  state.pickedEmotion = id;
+  state.pickedCustom = id === "custom" ? custom : "";
+  markSelected(id);
+  $("#custom-row").classList.add("hidden");
+  $("#selfie-actions").classList.remove("hidden");
+  $("#selfie-note").textContent = t("noteCapture");
+}
+
+// Entering Selfie Mode: render the picker, then either restore a finished selfie
+// (returning to the screen) or reset to step 1 — pick a face, capture hidden.
+function enterSelfie() {
+  // invalidate any capture still in flight from a prior visit and never inherit
+  // a stale lock, so the picker is always live on entry
+  state.selfieToken++;
+  state.busy = false;
+  renderEmotionPicker();
+  $("#selfie-error").classList.add("hidden");
+  setProcessing(false);
+  const sf = state.selfie;
+  if (sf && sf.chosen && sf.emotions[sf.chosen]) {
+    restoreSelfieUI();
+  } else {
+    state.selfie = null;
+    state.pickedEmotion = null;
+    state.pickedCustom = "";
+    $("#selfie-actions").classList.add("hidden");
+    $("#selfie-result").classList.add("hidden");
+    $("#selfie-note").textContent = "";
+  }
+}
+
+// Re-apply a finished selfie's cached chips, selection and preview onto the
+// freshly-rendered grid, so returning to the screen keeps prior work.
+function restoreSelfieUI() {
+  const sf = state.selfie;
+  for (const id of Object.keys(sf.emotions)) setChip(id, "ready");
+  markSelected(sf.chosen);
+  $("#preview-normal").src = sf.calm;
+  $("#preview-angry").src = sf.emotions[sf.chosen];
+  setPreviewCaption(sf.chosen, sf.customText);
+  setPreviewLoading(false);
+  enableStart(true);
+  $("#selfie-actions").classList.remove("hidden");
+  $("#selfie-result").classList.remove("hidden");
+  $("#selfie-note").textContent = t("noteReady");
 }
 
 /* ====================== Selfie processing flow ====================== */
@@ -417,7 +488,6 @@ let loadingTimer = null;
 function setProcessing(on) {
   const panel = $("#selfie-processing");
   panel.classList.toggle("hidden", !on);
-  $("#selfie-actions").classList.toggle("hidden", on);
   clearInterval(loadingTimer);
   if (on) {
     const lines = t("processing");
@@ -437,72 +507,94 @@ function showSelfieError(msg) {
   el.classList.remove("hidden");
 }
 
-// Upload flow: generate the CALM cut-out (every board face) plus the default
-// ANGRY reveal, in parallel. Calm is required — if it fails we surface an error
-// and never enter the game (NO heuristic fallback). The re-take lock (state.busy)
-// covers only the calm critical path; once calm lands the picker is shown and
-// the default Angry keeps generating in the background (a re-take from here is
-// handled safely by the state.selfie identity guard). Each further emotion is
-// generated on demand and cached.
+// Capture flow: the face was chosen in step 1 (or carried over from a prior
+// selfie). Generate the CALM cut-out (every board face) plus the chosen reveal,
+// in parallel. Calm is required — if it fails we surface an error and never
+// enter the game (NO heuristic fallback). The re-take lock (state.busy) covers
+// only the calm critical path; once calm lands the reveal keeps generating in
+// the background (a re-take from here is handled by the state.selfie identity
+// guard). Switching to other emotions afterward generates them on demand.
 async function handleSelfie(file) {
   if (!file || state.busy) return;
+  // target = the step-1 pick, or (on a re-take) the currently-chosen emotion
+  const target = (state.selfie && state.selfie.chosen) || state.pickedEmotion;
+  if (!target) return; // capture is gated on a pick — shouldn't happen
+  const targetCustom =
+    target === "custom"
+      ? (state.selfie && state.selfie.customText) || state.pickedCustom || ""
+      : "";
+
+  const token = state.selfieToken; // this capture is void if the user leaves/re-enters
+
   state.busy = true;
+  $("#selfie-note").textContent = "";
   $("#selfie-result").classList.add("hidden");
   $("#selfie-error").classList.add("hidden");
+  $("#selfie-actions").classList.add("hidden");
   setProcessing(true);
 
   let src;
   try {
     src = await optimizeFile(file);
   } catch (err) {
+    if (token !== state.selfieToken) return; // navigated away — leave the new screen alone
     console.error(err);
     setProcessing(false);
+    $("#selfie-actions").classList.remove("hidden");
     state.busy = false;
     showSelfieError(t("noteError"));
     return;
   }
 
   const calmP = generateCutout(src, "calm");
-  const angryP = generateCutout(src, "angry");
+  const revealP = generateCutout(src, target, targetCustom);
   const calm = await calmP;
+  // Bail BEFORE touching busy/UI/state if the user left and re-entered (or this
+  // capture was abandoned) — otherwise an orphaned calm clobbers a fresh screen.
+  if (token !== state.selfieToken) return;
   setProcessing(false);
   state.busy = false; // calm done — a re-take is allowed from here on
+  $("#selfie-actions").classList.remove("hidden");
 
   if (!calm) {
     showSelfieError(t("noteError"));
+    // keep the previous good selfie visible so chip taps aren't a dead end
+    const prev = state.selfie;
+    if (prev && prev.chosen && prev.emotions[prev.chosen]) restoreSelfieUI();
     return;
   }
 
-  const sf = { src, calm, emotions: {}, chosen: null, customText: "", generating: "angry" };
+  const sf = { src, calm, emotions: {}, chosen: null, customText: "", generating: target };
   state.selfie = sf;
-  renderEmotionPicker();
+  renderEmotionPicker(); // reset stale chip states (e.g. cached "ready" from a prior photo on a re-take)
+  markSelected(target);
+  setChip(target, "generating");
   $("#preview-normal").src = calm;
   $("#preview-angry").removeAttribute("src");
-  setPreviewCaption("angry");
+  setPreviewCaption(target, targetCustom);
+  setPreviewLoading(true);
   enableStart(false);
   $("#selfie-result").classList.remove("hidden");
-
-  // the default Angry reveal is already in flight
-  setChip("angry", "generating");
-  setPreviewLoading(true);
   $("#selfie-note").textContent = t("noteGenerating");
 
-  const angry = await angryP;
-  if (state.selfie !== sf) return; // a newer selfie replaced this one mid-flight
+  const reveal = await revealP;
+  if (token !== state.selfieToken || state.selfie !== sf) return; // left/re-entered or a newer capture replaced this
   sf.generating = null;
-  if (angry) {
-    sf.emotions.angry = angry;
-    sf.chosen = "angry";
-    setChip("angry", "ready");
-    markSelected("angry");
-    $("#preview-angry").src = angry;
+  if (reveal) {
+    sf.emotions[target] = reveal;
+    if (target === "custom") sf.customText = targetCustom;
+    sf.chosen = target;
+    setChip(target, "ready");
+    markSelected(target);
+    $("#preview-angry").src = reveal;
+    setPreviewCaption(target, targetCustom);
     setPreviewLoading(false);
     enableStart(true);
     $("#selfie-note").textContent = t("noteReady");
   } else {
-    setChip("angry", "error");
+    setChip(target, "error");
     setPreviewLoading(false);
-    $("#selfie-note").textContent = t("notePick");
+    $("#selfie-note").textContent = t("noteEmotionFail");
   }
 }
 
@@ -790,6 +882,7 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   $("#btn-selfie").addEventListener("click", () => {
     audio();
+    enterSelfie();
     show("selfie");
   });
 
@@ -818,13 +911,12 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   $("#btn-selfie-back").addEventListener("click", () => show("home"));
 
-  // emotion picker — delegate chip taps; custom opens a text input.
+  // emotion picker — delegate chip taps to pickEmotion (pre-capture = choose +
+  // reveal capture; post-capture = generate/select on the selfie).
   $("#emotion-grid").addEventListener("click", (e) => {
     const chip = e.target.closest(".emo-chip");
     if (!chip) return;
-    const id = chip.dataset.emo;
-    if (id === "custom") openCustom();
-    else selectEmotion(id);
+    pickEmotion(chip.dataset.emo);
   });
   $("#custom-go").addEventListener("click", submitCustom);
   $("#custom-input").addEventListener("keydown", (e) => {
