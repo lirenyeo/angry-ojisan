@@ -17,7 +17,7 @@
 <body>
 
   <!-- ============ HOME ============ -->
-  <section id="screen-home" class="screen active">
+  <section id="screen-home" class="screen scrollable active">
     <div class="home-inner">
       <div id="lang-switch" class="lang-switch" role="group" aria-label="language">
         <button data-lang="en">EN</button>
@@ -64,6 +64,12 @@
             <span class="toggle-knob"></span>
           </button>
         </div>
+        <p class="setting-blurb" data-i18n="drinkBlurb">Clear an uncle → a dare can pop → friends drink.</p>
+        <button id="btn-drink-customize" class="customize-btn" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h9M17 7h3M4 17h3M11 17h9" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/><circle cx="15" cy="7" r="2.4" fill="none" stroke="currentColor" stroke-width="1.9"/><circle cx="9" cy="17" r="2.4" fill="none" stroke="currentColor" stroke-width="1.9"/></svg>
+          <span data-i18n="drinkCustomize">Customize dares</span>
+          <svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
       </div>
 
       <p class="footnote" data-i18n="footnote">Take a selfie to hide your own face in the crowd.</p>
@@ -175,12 +181,34 @@
     </div>
   </div>
 
+  <!-- ============ DRINK SETTINGS SHEET ============ -->
+  <div id="overlay-drink-settings" class="sheet-overlay" aria-hidden="true">
+    <div class="sheet scrollable" role="dialog" aria-modal="true" aria-labelledby="drink-settings-title">
+      <div class="sheet-grip" aria-hidden="true"></div>
+      <h2 id="drink-settings-title" class="sheet-title" data-i18n="drinkSettingsTitle">Drinking game</h2>
+      <p class="sheet-about" data-i18n="drinkAbout">Tap uncles like normal. Sometimes clearing one pops a dare — and you get to make your friends drink. Choose which dares are in play, or add your own.</p>
+      <div class="sheet-section-label" data-i18n="drinkWhichDares">Dares in play</div>
+      <div id="drink-rules" class="drink-rules"></div>
+      <p id="drink-none-hint" class="drink-none-hint hidden" data-i18n="drinkNoneOn">Turn on at least one dare, or the game stays dry.</p>
+      <div class="sheet-add">
+        <input id="drink-add-input" type="text" maxlength="60" autocomplete="off" autocapitalize="sentences" spellcheck="false" enterkeyhint="done" placeholder="Add your own dare…">
+        <button id="drink-add-btn" class="custom-go" aria-label="add dare">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+      <button id="btn-drink-settings-done" class="btn btn-primary" data-i18n="drinkDone">Done</button>
+    </div>
+  </div>
+
   <!-- ============ DRINK INSTRUCTION ============ -->
   <div id="overlay-drink" aria-live="assertive">
+    <div class="drink-rays" aria-hidden="true"></div>
+    <div id="drink-confetti" class="drink-confetti" aria-hidden="true"></div>
     <div class="drink-modal">
       <div id="drink-modal-icon" class="drink-modal-icon" aria-hidden="true"></div>
+      <span id="drink-modal-kicker" class="drink-modal-kicker" data-i18n="drinkCheers">Cheers!</span>
       <p id="drink-modal-text" class="drink-modal-text"></p>
-      <button id="btn-drink-close" class="btn btn-primary" data-i18n="drinkClose">Cheers!</button>
+      <button id="btn-drink-close" class="btn btn-primary drink-confirm" data-i18n="drinkConfirmOthers">Done — they drank</button>
     </div>
   </div>
 

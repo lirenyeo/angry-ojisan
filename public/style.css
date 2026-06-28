@@ -193,13 +193,57 @@ body {
 .footnote { color: var(--ink-dim); font-size: 0.85rem; opacity: 0.8; max-width: 300px; }
 
 /* ---------- settings (drinking-game toggle) ---------- */
-.settings { width: 100%; max-width: 280px; }
+.settings {
+  width: 100%;
+  max-width: 300px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
 .setting-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .setting-label {
   font-size: 0.8rem;
   text-transform: uppercase;
   letter-spacing: 0.12em;
   color: var(--ink-dim);
+}
+.setting-blurb {
+  font-size: 0.82rem;
+  line-height: 1.35;
+  color: var(--ink-dim);
+  opacity: 0.85;
+  text-align: left;
+}
+/* "Customize dares" — only meaningful when the game is on, so it collapses away
+   when off (and the blurb dims) */
+.customize-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 14px;
+  border: none;
+  border-radius: 12px;
+  background: rgba(240, 164, 50, 0.12);
+  box-shadow: inset 0 0 0 1.5px rgba(240, 164, 50, 0.35);
+  color: var(--amber);
+  font-family: var(--font);
+  font-weight: 700;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: transform 0.1s ease, background 0.15s ease;
+}
+.customize-btn:active { transform: scale(0.97); }
+.customize-btn svg { width: 18px; height: 18px; flex: 0 0 auto; }
+.customize-btn .chev { margin-left: auto; opacity: 0.7; }
+.settings.is-off .customize-btn { display: none; }
+.settings.is-off .setting-blurb { opacity: 0.5; }
+/* a quick happy bounce when the game is switched on */
+.toggle.celebrate { animation: toggle-pop 0.5s cubic-bezier(0.2, 1.7, 0.4, 1); }
+@keyframes toggle-pop {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.16); }
+  100% { transform: scale(1); }
 }
 .toggle {
   position: relative;
@@ -227,6 +271,12 @@ body {
 }
 .toggle.on .toggle-knob { transform: translateX(22px); }
 .toggle:active .toggle-knob { width: 26px; }
+
+/* compact toggle for the per-dare rows in the settings sheet */
+.toggle-sm { width: 42px; height: 24px; }
+.toggle-sm .toggle-knob { top: 3px; left: 3px; width: 18px; height: 18px; }
+.toggle-sm.on .toggle-knob { transform: translateX(18px); }
+.toggle-sm:active .toggle-knob { width: 21px; }
 
 /* ---------- selfie screen ---------- */
 .selfie-inner {
@@ -616,7 +666,105 @@ body.quake #screen-game { animation: quake 0.55s linear; }
 }
 .lose-panel p { color: var(--ink-dim); text-align: center; font-size: 0.95rem; }
 
-/* ---------- drink instruction modal ---------- */
+/* ---------- drink settings sheet (home) ---------- */
+.sheet-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: none;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(8, 6, 12, 0.62);
+  backdrop-filter: blur(3px);
+}
+.sheet-overlay.show { display: flex; animation: drink-fade 0.2s ease-out; }
+.sheet {
+  width: min(440px, 100%);
+  max-height: 88dvh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 10px 20px calc(env(safe-area-inset-bottom) + 20px);
+  border-radius: 26px 26px 0 0;
+  background: linear-gradient(180deg, var(--bg2), var(--bg));
+  box-shadow: 0 -20px 60px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  animation: sheet-up 0.32s cubic-bezier(0.2, 0.9, 0.3, 1);
+}
+@keyframes sheet-up { from { transform: translateY(100%); } to { transform: translateY(0); } }
+.sheet-grip { width: 44px; height: 5px; border-radius: 3px; background: rgba(255, 255, 255, 0.2); margin: 4px auto 2px; flex: 0 0 auto; }
+.sheet-title { font-size: 1.3rem; font-weight: 800; text-align: center; color: var(--ink); }
+.sheet-about { font-size: 0.9rem; line-height: 1.45; color: var(--ink-dim); text-align: center; }
+.sheet-section-label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--ink-dim);
+  margin-top: 2px;
+}
+.drink-rules { display: flex; flex-direction: column; gap: 8px; }
+.drink-rule {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.05);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+  transition: background 0.15s ease;
+}
+.drink-rule-icon { width: 30px; height: 30px; flex: 0 0 auto; display: grid; place-items: center; color: var(--amber); }
+.drink-rule-icon svg { width: 24px; height: 24px; }
+.drink-rule-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--ink);
+  line-height: 1.25;
+  text-align: left;
+}
+.drink-rule.off { background: rgba(255, 255, 255, 0.02); }
+.drink-rule.off .drink-rule-text { color: var(--ink-dim); }
+.drink-rule.off .drink-rule-icon { color: var(--ink-dim); opacity: 0.55; }
+.drink-rule-del {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--ink-dim);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: transform 0.1s ease, color 0.15s ease;
+}
+.drink-rule-del svg { width: 15px; height: 15px; }
+.drink-rule-del:active { transform: scale(0.88); color: #ffb4a8; }
+.drink-none-hint { font-size: 0.82rem; color: #ffcf9a; text-align: center; }
+.sheet-add { display: flex; gap: 8px; }
+#drink-add-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 46px;
+  padding: 0 14px;
+  border: none;
+  border-radius: 12px;
+  background: var(--card);
+  color: var(--ink);
+  font-family: var(--font);
+  font-weight: 600;
+  font-size: 0.95rem;
+  box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, 0.12);
+}
+#drink-add-input:focus { outline: none; box-shadow: inset 0 0 0 2px var(--amber); }
+#drink-add-input::placeholder { color: var(--ink-dim); opacity: 0.7; }
+.sheet-add .custom-go { height: 46px; width: 50px; }
+#btn-drink-settings-done { margin-top: 2px; }
+
+/* ---------- drink instruction modal (the in-game "you win, they drink") ---------- */
 #overlay-drink {
   position: fixed;
   inset: 0;
@@ -625,6 +773,7 @@ body.quake #screen-game { animation: quake 0.55s linear; }
   align-items: center;
   justify-content: center;
   padding: 24px;
+  overflow: hidden;
   background: rgba(8, 6, 12, 0.72);
   backdrop-filter: blur(3px);
 }
@@ -633,52 +782,148 @@ body.quake #screen-game { animation: quake 0.55s linear; }
   from { opacity: 0; }
   to { opacity: 1; }
 }
+
+/* celebratory light rays fanning out behind the modal */
+.drink-rays {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 170vmax;
+  height: 170vmax;
+  margin: -85vmax 0 0 -85vmax;
+  background: repeating-conic-gradient(from 0deg, rgba(255, 233, 170, 0.16) 0 10deg, transparent 10deg 22deg);
+  -webkit-mask: radial-gradient(circle, #000 8%, transparent 58%);
+  mask: radial-gradient(circle, #000 8%, transparent 58%);
+  opacity: 0;
+  pointer-events: none;
+}
+#overlay-drink.show .drink-rays { animation: rays-spin 18s linear infinite, rays-fade 0.6s ease-out forwards; }
+#overlay-drink.rare .drink-rays { background: repeating-conic-gradient(from 0deg, rgba(255, 120, 80, 0.2) 0 10deg, transparent 10deg 22deg); }
+@keyframes rays-spin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
+@keyframes rays-fade { to { opacity: 1; } }
+
+/* confetti burst — pieces are injected by JS with random colour / vector */
+.drink-confetti { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.confetti-pc {
+  position: absolute;
+  top: 40%;
+  width: 9px;
+  height: 14px;
+  border-radius: 2px;
+  opacity: 0;
+  will-change: transform, opacity;
+  animation: confetti-burst 1100ms cubic-bezier(0.2, 0.7, 0.3, 1) forwards;
+}
+@keyframes confetti-burst {
+  0% { opacity: 0; transform: translate(0, 0) rotate(0deg) scale(0.6); }
+  12% { opacity: 1; }
+  100% { opacity: 0; transform: translate(var(--dx), var(--dy)) rotate(var(--dr)) scale(1); }
+}
+
 .drink-modal {
+  position: relative;
+  z-index: 1;
   width: min(360px, 100%);
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 18px;
-  padding: 30px 26px 26px;
+  gap: 14px;
+  padding: 28px 26px 24px;
   border-radius: 24px;
   text-align: center;
   background: linear-gradient(180deg, #ffd36b, var(--amber));
   color: #2a1a05;
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55), inset 0 0 0 2px rgba(0, 0, 0, 0.12);
-  animation: drink-modal-pop 0.32s cubic-bezier(0.2, 1.5, 0.4, 1);
+  animation: drink-modal-pop 0.42s cubic-bezier(0.2, 1.6, 0.35, 1);
 }
 @keyframes drink-modal-pop {
-  0% { transform: scale(0.6); opacity: 0; }
-  100% { transform: scale(1); opacity: 1; }
+  0% { transform: scale(0.5) rotate(-6deg); opacity: 0; }
+  60% { transform: scale(1.06) rotate(2deg); opacity: 1; }
+  100% { transform: scale(1) rotate(0deg); opacity: 1; }
 }
 .drink-modal-icon {
-  width: 72px;
-  height: 72px;
+  width: 78px;
+  height: 78px;
   display: flex;
   align-items: center;
   justify-content: center;
   border-radius: 50%;
   background: rgba(0, 0, 0, 0.12);
+  box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.6);
+  animation: drink-icon-pop 0.5s cubic-bezier(0.2, 1.7, 0.4, 1) 0.08s backwards, drink-icon-bob 1.5s ease-in-out 0.6s infinite, drink-icon-glow 1.5s ease-in-out 0.6s infinite;
 }
-.drink-modal-icon svg { width: 44px; height: 44px; }
+.drink-modal-icon svg { width: 46px; height: 46px; }
+@keyframes drink-icon-pop { from { transform: scale(0); } to { transform: scale(1); } }
+@keyframes drink-icon-bob {
+  0%, 100% { transform: translateY(0) rotate(-5deg); }
+  50% { transform: translateY(-5px) rotate(5deg); }
+}
+@keyframes drink-icon-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.0); }
+  50% { box-shadow: 0 0 22px 4px rgba(255, 255, 255, 0.5); }
+}
+.drink-modal-kicker {
+  font-size: 0.95rem;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #7a3a00;
+  margin-bottom: -4px;
+  animation: kicker-pop 0.4s cubic-bezier(0.2, 1.6, 0.4, 1) 0.2s backwards;
+}
+@keyframes kicker-pop { from { transform: scale(0.4); opacity: 0; } to { transform: scale(1); opacity: 1; } }
 .drink-modal-text {
   font-size: 1.5rem;
   font-weight: 800;
   line-height: 1.2;
 }
+/* confirm button — also the dismiss; arms with a sweep so a stray tap can't
+   blow past the dare before it's read */
 .drink-modal .btn-primary {
+  position: relative;
+  overflow: hidden;
   width: 100%;
   background: #2a1a05;
   color: #ffd98a;
   box-shadow: 0 5px 0 rgba(0, 0, 0, 0.35), 0 10px 24px rgba(0, 0, 0, 0.3);
 }
+.drink-confirm::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 100%;
+  transform-origin: left;
+  transform: scaleX(0);
+  background: rgba(255, 217, 138, 0.22);
+  pointer-events: none;
+}
+.drink-confirm:disabled { cursor: default; opacity: 0.92; }
+.drink-confirm:disabled::before { animation: confirm-arm var(--arm, 0.8s) linear forwards; }
+@keyframes confirm-arm { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+
 /* "Everyone drinks" — rare, so make the whole modal shout in rage-red. */
 .drink-modal.rare {
   background: linear-gradient(180deg, #ff7a45, var(--rage));
   color: #fff;
 }
 .drink-modal.rare .drink-modal-text { font-size: 1.7rem; letter-spacing: 0.01em; }
+.drink-modal.rare .drink-modal-kicker { color: #4a0a04; } /* dark for AA contrast across the orange→red gradient */
 .drink-modal.rare .drink-modal-icon { background: rgba(0, 0, 0, 0.18); }
+.drink-modal.rare .btn-primary { background: #4a0a04; color: #ffd9cf; }
+.drink-modal.rare .drink-confirm::before { background: rgba(255, 255, 255, 0.2); }
+
+@media (prefers-reduced-motion: reduce) {
+  .drink-rays, .drink-confetti { display: none; }
+  .drink-modal-icon { animation: drink-icon-pop 0.3s ease 0.05s backwards; }
+  .drink-modal { animation: drink-fade 0.2s ease-out; }
+  /* drop the remaining one-shot transforms too (the 800ms arm is JS-enforced,
+     so killing the sweep is safe; disabled opacity still signals the wait) */
+  .toggle.celebrate { animation: none; }
+  .drink-modal-kicker { animation: none; }
+  .drink-confirm:disabled::before { animation: none; }
+}
 
 /* ---------- small phones / landscape guards ---------- */
 @media (max-height: 600px) {

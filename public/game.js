@@ -18,6 +18,7 @@ const state = {
   selfieToken: 0, // bumped on every selfie-screen entry; invalidates in-flight captures
   drinks: null, // per-cell drink instruction (or null) for this round — the drinking game
   drinkEnabled: true, // home-screen toggle; off = no drinking instructions at all
+  drinkRules: [], // ordered dare list: built-ins + custom, each { id, builtin, i18n|text, icon, enabled }
 };
 
 const $ = (sel) => document.querySelector(sel);
@@ -600,65 +601,201 @@ async function handleSelfie(file) {
 
 /* ========================= Drinking game ========================= */
 
-// Some uncles, when tapped, pop a drinking instruction instead of a flavour
-// quip. "Everyone drinks" is intentionally very rare (low weight); the rest are
-// common. i18n holds the text; the SVG keeps us off emojis per house style.
-const DRINK_TYPES = [
-  { id: "one", i18n: "drinkOne", weight: 30 },
-  { id: "left", i18n: "drinkLeft", weight: 28 },
-  { id: "right", i18n: "drinkRight", weight: 28 },
-  { id: "all", i18n: "drinkAll", weight: 3 }, // very rare
+// When you clear an uncle, a dare can pop — a full-screen "make your friends
+// drink" moment. Below are the built-in dares; players toggle which are in play
+// and can add their own in the settings sheet. i18n holds built-in text; SVG
+// icons keep us off emojis per house style. "Everyone but you" is the big one.
+const BUILTIN_DRINKS = [
+  { id: "one", i18n: "drinkOne", icon: "person" },
+  { id: "left", i18n: "drinkLeft", icon: "left" },
+  { id: "right", i18n: "drinkRight", icon: "right" },
+  { id: "leftright", i18n: "drinkLeftRight", icon: "leftright" },
+  { id: "allbutme", i18n: "drinkAllButMe", icon: "group" },
+  { id: "youngest", i18n: "drinkYoungest", icon: "star" },
+  { id: "you", i18n: "drinkYou", icon: "glass" },
 ];
-const DRINK_WEIGHT_TOTAL = DRINK_TYPES.reduce((s, d) => s + d.weight, 0);
-const DRINK_RATE = 0.1; // ~10% of calm uncles carry a drinking instruction
+const RULES_KEY = "ao_drink_rules";
+const DEL_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>`;
 
 const DRINK_ICONS = {
-  one: `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3.6" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M5.5 20a6.5 6.5 0 0 1 13 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>`,
+  person: `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3.6" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M5.5 20a6.5 6.5 0 0 1 13 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>`,
   left: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12H4m6-6-6 6 6 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
   right: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h16m-6-6 6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
-  all: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 8h8v9a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M15 10h2.4A1.6 1.6 0 0 1 19 11.6v1.8A1.6 1.6 0 0 1 17.4 15H15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M8 8c.4-2 6.6-2 7 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>`,
+  leftright: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h18M8 7l-5 5 5 5M16 7l5 5-5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+  group: `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="9" r="3" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M3.5 19a5.5 5.5 0 0 1 11 0" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M15.5 7.2a3 3 0 0 1 0 5.6M17 14.4a5.5 5.5 0 0 1 3.5 4.6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>`,
+  star: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.2l2.5 5.3 5.8.7-4.3 4 1.1 5.7L12 16.9 6.9 19.9 8 14.2 3.7 10.2l5.8-.7z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>`,
+  glass: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 8h8v9a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M15 10h2.4A1.6 1.6 0 0 1 19 11.6v1.8A1.6 1.6 0 0 1 17.4 15H15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M8 8c.4-2 6.6-2 7 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>`,
 };
 
-function pickDrinkType() {
-  let r = Math.random() * DRINK_WEIGHT_TOTAL;
-  for (const d of DRINK_TYPES) {
-    if ((r -= d.weight) < 0) return d;
+/* ---- small helpers ---- */
+function shuffle(a) {
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
   }
-  return DRINK_TYPES[0];
+  return a;
+}
+function escapeHtml(s) {
+  return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
-// Decide up front which uncles hold a drink instruction (the angry one never
-// does — he ends the round before any card matters). Empty if the toggle is off.
+// Per-round dare-count distribution — independent of grid size (per spec):
+// 40% none · 30% one · 20% two · 10% three.
+function pickDrinkCount() {
+  const r = Math.random();
+  if (r < 0.4) return 0;
+  if (r < 0.7) return 1;
+  if (r < 0.9) return 2;
+  return 3;
+}
+
+// ---- dare rules: built-ins + custom, each with on/off, persisted ----
+// localStorage shape: { off: [builtinId…], custom: [{ id, text, on }] }
+function buildDrinkRules() {
+  let off = [];
+  let custom = [];
+  try {
+    const raw = localStorage.getItem(RULES_KEY);
+    if (raw) {
+      const p = JSON.parse(raw);
+      if (p && typeof p === "object") {
+        if (Array.isArray(p.off)) off = p.off;
+        if (Array.isArray(p.custom)) custom = p.custom;
+      }
+    }
+  } catch {
+    /* unavailable / corrupt — fall back to all-on defaults */
+  }
+  const offSet = new Set(off);
+  const builtins = BUILTIN_DRINKS.map((d) => ({
+    id: d.id, builtin: true, i18n: d.i18n, icon: d.icon, enabled: !offSet.has(d.id),
+  }));
+  const customs = custom
+    .filter((c) => c && typeof c.text === "string" && c.text.trim())
+    .map((c) => ({
+      id: typeof c.id === "string" ? c.id : "c" + Math.random().toString(36).slice(2, 9),
+      builtin: false,
+      text: c.text.trim().slice(0, 60),
+      icon: "star",
+      enabled: c.on !== false,
+    }));
+  state.drinkRules = [...builtins, ...customs];
+}
+
+function saveDrinkRules() {
+  const off = state.drinkRules.filter((r) => r.builtin && !r.enabled).map((r) => r.id);
+  const custom = state.drinkRules
+    .filter((r) => !r.builtin)
+    .map((r) => ({ id: r.id, text: r.text, on: r.enabled }));
+  try {
+    localStorage.setItem(RULES_KEY, JSON.stringify({ off, custom }));
+  } catch {
+    /* ignore */
+  }
+}
+
+function enabledDrinkTypes() {
+  return state.drinkRules.filter((r) => r.enabled);
+}
+function drinkLabel(rule) {
+  return rule.builtin ? t(rule.i18n) : rule.text;
+}
+// the confirm button reads like the drink already happened (per spec)
+function drinkConfirmKey(rule) {
+  if (rule.id === "you") return "drinkConfirmSelf";
+  if (rule.id === "allbutme") return "drinkConfirmAll";
+  return "drinkConfirmOthers";
+}
+function isRareDrink(rule) {
+  return rule.id === "allbutme";
+}
+
+// Decide up front which uncles hold a dare (the angry one never does — he ends
+// the round before any card matters). Count from pickDrinkCount (NOT scaled by
+// grid); each placed dare is an equal-chance pick among the enabled ones.
 function assignDrinks() {
   const drinks = new Array(state.grid).fill(null);
   if (!state.drinkEnabled) return drinks;
-  for (let i = 0; i < state.grid; i++) {
-    if (i === state.angryIndex) continue;
-    if (Math.random() < DRINK_RATE) drinks[i] = pickDrinkType();
+  const pool = enabledDrinkTypes();
+  if (!pool.length) return drinks;
+  const candidates = [];
+  for (let i = 0; i < state.grid; i++) if (i !== state.angryIndex) candidates.push(i);
+  const count = Math.min(pickDrinkCount(), candidates.length);
+  shuffle(candidates);
+  for (let k = 0; k < count; k++) {
+    drinks[candidates[k]] = pool[Math.floor(Math.random() * pool.length)];
   }
   return drinks;
 }
 
-function clinkSound(rare) {
-  // light "ding ding" when a drink card appears; brighter triple for "everyone"
-  tone({ type: "sine", from: 900, to: 1320, dur: 0.1, vol: 0.18 });
-  tone({ type: "sine", from: 1320, to: 1760, dur: 0.12, vol: 0.16, delay: 0.08 });
-  if (rare) tone({ type: "sine", from: 1760, to: 2300, dur: 0.16, vol: 0.18, delay: 0.18 });
+/* ---- celebration: a happy "you win, they drink" flourish ---- */
+const CONFETTI_COLORS = ["#ff5b4d", "#ffce47", "#4db6f0", "#6bd47a", "#ff8fb0", "#b98cff", "#f0a432"];
+
+function cheerSound(rare) {
+  // rising major arpeggio — a little "you win" fanfare, brighter for the big one
+  const notes = [523, 659, 784, 1047]; // C5 E5 G5 C6
+  notes.forEach((f, i) => tone({ type: "triangle", from: f, to: f, dur: 0.14, vol: 0.16, delay: i * 0.07 }));
+  tone({ type: "sine", from: 1568, to: 2093, dur: 0.18, vol: 0.12, delay: 0.3 });
+  if (rare) {
+    tone({ type: "sine", from: 1047, to: 1760, dur: 0.22, vol: 0.16, delay: 0.42 });
+    tone({ type: "square", from: 220, to: 330, dur: 0.2, vol: 0.08, delay: 0.42 });
+  }
 }
 
-// A drink instruction is a full-screen modal so the whole table sees it; it
-// stays up (blocking the board) until someone taps "Cheers!" to dismiss.
-function openDrinkModal(type) {
+function burstConfetti() {
+  const wrap = $("#drink-confetti");
+  if (!wrap) return;
+  wrap.innerHTML = "";
+  const frag = document.createDocumentFragment();
+  for (let i = 0; i < 20; i++) {
+    const pc = document.createElement("span");
+    pc.className = "confetti-pc";
+    const angle = Math.random() * Math.PI * 2;
+    const dist = 120 + Math.random() * 210;
+    const dx = Math.cos(angle) * dist;
+    const dy = Math.sin(angle) * dist * 0.7 + 140; // bias downward so it rains
+    pc.style.left = 50 + (Math.random() * 26 - 13) + "%";
+    pc.style.background = CONFETTI_COLORS[i % CONFETTI_COLORS.length];
+    pc.style.setProperty("--dx", dx.toFixed(0) + "px");
+    pc.style.setProperty("--dy", dy.toFixed(0) + "px");
+    pc.style.setProperty("--dr", (Math.random() * 720 - 360).toFixed(0) + "deg");
+    pc.style.animationDelay = (Math.random() * 0.12).toFixed(2) + "s";
+    frag.appendChild(pc);
+  }
+  wrap.appendChild(frag);
+}
+
+// A dare is a full-screen modal so the whole table sees it; it blocks the board
+// until the confirm button is tapped. The button is disabled for a beat first,
+// so a stray rapid tap can't dismiss it unread — and a backdrop tap never closes
+// it (both per spec: people tap consecutively and would skip the dare).
+const DRINK_ARM_MS = 800;
+let drinkArmTimer = null;
+
+function openDrinkModal(rule) {
   const overlay = $("#overlay-drink");
-  const rare = type.id === "all";
-  $("#drink-modal-icon").innerHTML = DRINK_ICONS[type.id];
-  $("#drink-modal-text").textContent = t(type.i18n);
+  const rare = isRareDrink(rule);
+  $("#drink-modal-icon").innerHTML = DRINK_ICONS[rule.icon] || DRINK_ICONS.glass;
+  $("#drink-modal-text").textContent = drinkLabel(rule);
+  $("#drink-modal-kicker").textContent = t("drinkCheers");
   overlay.querySelector(".drink-modal").classList.toggle("rare", rare);
+  overlay.classList.toggle("rare", rare);
+  burstConfetti();
   overlay.classList.add("show");
-  clinkSound(rare);
+  cheerSound(rare);
+  buzz(rare ? [40, 30, 70] : 22);
+
+  const btn = $("#btn-drink-close");
+  btn.textContent = t(drinkConfirmKey(rule));
+  btn.disabled = true;
+  btn.style.setProperty("--arm", DRINK_ARM_MS / 1000 + "s");
+  clearTimeout(drinkArmTimer);
+  drinkArmTimer = setTimeout(() => { btn.disabled = false; }, DRINK_ARM_MS);
 }
 
 function closeDrinkModal() {
+  clearTimeout(drinkArmTimer);
+  $("#btn-drink-close").disabled = false;
   $("#overlay-drink").classList.remove("show");
 }
 
@@ -736,6 +873,10 @@ function updateHud() {
 // angry reveal (state.over) stops the board.
 function openCell(cell, i) {
   if (state.over || cell.classList.contains("tapped")) return;
+  // a dare modal already blocks the board via z-index, but two genuinely
+  // simultaneous touches can both resolve to cells in one frame — guard so the
+  // second can't open (and overwrite) a dare unseen, or trigger a loss under it
+  if ($("#overlay-drink").classList.contains("show")) return;
   cell.classList.add("tapped");
   const round = state.round;
 
@@ -810,6 +951,7 @@ function applyLang() {
   });
   // dynamic, screen-dependent text
   if ($("#screen-game").classList.contains("active")) updateHud();
+  if ($("#overlay-drink-settings").classList.contains("show")) renderDrinkRules();
 }
 
 function initLang() {
@@ -831,17 +973,25 @@ function initLang() {
 
 const DRINK_KEY = "ao_drink";
 
-function setDrinkEnabled(on, persist) {
+function setDrinkEnabled(on, persist, celebrate) {
   state.drinkEnabled = on;
   const toggle = $("#drink-toggle");
   toggle.classList.toggle("on", on);
   toggle.setAttribute("aria-checked", String(on));
+  $(".settings").classList.toggle("is-off", !on); // collapses the "customize" row when off
   if (persist) {
     try {
       localStorage.setItem(DRINK_KEY, on ? "on" : "off");
     } catch {
       /* ignore */
     }
+  }
+  if (celebrate && on) {
+    // a little happy "now you get to make people drink" flourish
+    toggle.classList.remove("celebrate");
+    void toggle.offsetWidth; // reflow so the bounce restarts on every toggle-on
+    toggle.classList.add("celebrate");
+    cheerSound(false);
   }
 }
 
@@ -855,12 +1005,110 @@ function initDrinkToggle() {
   setDrinkEnabled(on, false);
 }
 
+/* ---- the dare-settings bottom sheet ---- */
+function updateDrinkNoneHint() {
+  $("#drink-none-hint").classList.toggle("hidden", enabledDrinkTypes().length > 0);
+}
+
+function renderDrinkRules() {
+  const wrap = $("#drink-rules");
+  wrap.innerHTML = state.drinkRules
+    .map((r) => {
+      const label = r.builtin ? t(r.i18n) : escapeHtml(r.text);
+      const icon = DRINK_ICONS[r.icon] || DRINK_ICONS.star;
+      const del = r.builtin
+        ? ""
+        : `<button class="drink-rule-del" data-act="del" data-id="${r.id}" aria-label="remove dare">${DEL_ICON}</button>`;
+      return (
+        `<div class="drink-rule${r.enabled ? "" : " off"}" data-id="${r.id}">` +
+        `<span class="drink-rule-icon" aria-hidden="true">${icon}</span>` +
+        `<span class="drink-rule-text">${label}</span>` +
+        del +
+        `<button class="toggle toggle-sm${r.enabled ? " on" : ""}" data-act="toggle" data-id="${r.id}" role="switch" aria-checked="${r.enabled}" aria-label="toggle dare"><span class="toggle-knob"></span></button>` +
+        `</div>`
+      );
+    })
+    .join("");
+  updateDrinkNoneHint();
+}
+
+function toggleDrinkRule(id) {
+  const r = state.drinkRules.find((x) => x.id === id);
+  if (!r) return;
+  r.enabled = !r.enabled;
+  saveDrinkRules();
+  // update just this row (keeps the toggle's slide animation live)
+  const row = document.querySelector(`.drink-rule[data-id="${id}"]`);
+  if (row) {
+    row.classList.toggle("off", !r.enabled);
+    const tg = row.querySelector(".toggle");
+    tg.classList.toggle("on", r.enabled);
+    tg.setAttribute("aria-checked", String(r.enabled));
+  }
+  updateDrinkNoneHint();
+}
+
+function deleteDrinkRule(id) {
+  state.drinkRules = state.drinkRules.filter((r) => r.id !== id);
+  saveDrinkRules();
+  renderDrinkRules();
+}
+
+function addCustomDare() {
+  const input = $("#drink-add-input");
+  const text = input.value.replace(/[\p{Cc}]+/gu, " ").replace(/\s+/g, " ").trim().slice(0, 60);
+  if (!text) return;
+  const id = "c" + Math.random().toString(36).slice(2, 9);
+  state.drinkRules.push({ id, builtin: false, text, icon: "star", enabled: true });
+  saveDrinkRules();
+  renderDrinkRules();
+  input.value = "";
+  input.focus();
+  const row = document.querySelector(`.drink-rule[data-id="${id}"]`);
+  if (row) row.scrollIntoView({ block: "nearest" });
+}
+
+function openDrinkSettings() {
+  renderDrinkRules();
+  const input = $("#drink-add-input");
+  input.value = "";
+  input.placeholder = t("drinkAddPh");
+  const ov = $("#overlay-drink-settings");
+  ov.classList.add("show");
+  ov.setAttribute("aria-hidden", "false");
+}
+
+function closeDrinkSettings() {
+  const ov = $("#overlay-drink-settings");
+  ov.classList.remove("show");
+  ov.setAttribute("aria-hidden", "true");
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   // language switcher
   initLang();
-  // drinking-game toggle
+  // drinking-game toggle + dare settings sheet
+  buildDrinkRules();
   initDrinkToggle();
-  $("#drink-toggle").addEventListener("click", () => setDrinkEnabled(!state.drinkEnabled, true));
+  $("#drink-toggle").addEventListener("click", () => setDrinkEnabled(!state.drinkEnabled, true, true));
+  $("#btn-drink-customize").addEventListener("click", openDrinkSettings);
+  $("#btn-drink-settings-done").addEventListener("click", closeDrinkSettings);
+  $("#overlay-drink-settings").addEventListener("pointerdown", (e) => {
+    if (e.target.id === "overlay-drink-settings") closeDrinkSettings();
+  });
+  $("#drink-rules").addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-act]");
+    if (!btn) return;
+    if (btn.dataset.act === "toggle") toggleDrinkRule(btn.dataset.id);
+    else if (btn.dataset.act === "del") deleteDrinkRule(btn.dataset.id);
+  });
+  $("#drink-add-btn").addEventListener("click", addCustomDare);
+  $("#drink-add-input").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      addCustomDare();
+    }
+  });
   document.querySelectorAll("#lang-switch button").forEach((btn) => {
     btn.addEventListener("click", () => {
       document.querySelectorAll("#lang-switch button").forEach((b) => b.classList.remove("sel"));
@@ -939,11 +1187,9 @@ document.addEventListener("DOMContentLoaded", () => {
     show("home");
   });
 
-  // drink instruction modal — manual dismiss only (button, or tap the backdrop)
+  // drink instruction modal — the confirm button is the ONLY dismiss. A backdrop
+  // tap must never close it: players tap fast and could skip the dare unseen.
   $("#btn-drink-close").addEventListener("click", closeDrinkModal);
-  $("#overlay-drink").addEventListener("pointerdown", (e) => {
-    if (e.target.id === "overlay-drink") closeDrinkModal();
-  });
 
   // prevent iOS double-tap zoom / scroll bounce inside the app
   document.addEventListener(
